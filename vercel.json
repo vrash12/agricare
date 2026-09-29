@@ -40,7 +40,14 @@
       "destination": {
         "service": "client",
         "path": "/index.html"
-      }
+      },
+      "transforms": [
+        {
+          "type": "request.path",
+          "op": "set",
+          "args": "/index.html"
+        }
+      ]
     }
   ]
 }
