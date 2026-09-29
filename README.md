@@ -17,8 +17,8 @@ Backend: install the Python dependencies, configure Firebase and Supabase creden
 
 ## Vercel
 
-Deploy `client` as a Vite project. Supply `VITE_API_URL` (ending in `/api`), `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY` as build environment variables.
+Import the repository root with the Services preset. The root `vercel.json` builds the React client and Django server together on one domain. Requests under `/api/` and `/ws/` reach Django; frontend routes reach Vite. No separate backend URL is required.
 
-Deploy `server` separately as the Django backend. Backend secrets belong only in the backend project's environment settings. Configure CORS for the deployed frontend.
+Configure Firebase, Supabase, Django and SMTP credentials in Vercel environment settings, never in Git. Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are included in the browser build. Production API requests use `/api`.
 
-The frontend deployment alone does not provide authentication, email delivery, or ticket APIs. Those require a configured, reachable backend.
+Set `DEBUG=False` and a strong `SECRET_KEY`. An external `REDIS_URL` is required for reliable live broadcasts across multiple backend instances; without it, broadcasts only reach connections on the same instance. Stored tickets and messages remain in Firestore.
