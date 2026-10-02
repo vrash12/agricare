@@ -124,6 +124,15 @@ class TicketListView(APIView):
             return Response([with_capacity(ticket) for ticket in tickets])
         if request.user.role == 'farmer':
             tickets = get_tickets_by_farmer(request.user.id)
+            if request.query_params.get('repository') == '1':
+                tickets = [dict(ticket) for ticket in tickets]
+                for ticket in tickets:
+                    require_ticket_access(request.user, ticket)
+                    answers = [m for m in get_ticket_messages(ticket['id'])
+                               if m.get('senderRole') in WORKER_ROLES and m.get('message')]
+                    preferred = next((m for m in reversed(answers) if m.get('isPinned')), None)
+                    ticket['solution'] = (preferred or (answers[-1] if answers else {})).get('message', '')
+                    ticket['answerSearchText'] = '\n'.join(m['message'] for m in answers)
             return Response([with_capacity(ticket) for ticket in tickets])
         from datetime import date
         now = datetime.now(timezone.utc)

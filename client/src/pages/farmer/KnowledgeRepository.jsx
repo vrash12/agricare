@@ -48,6 +48,7 @@ const FarmerKnowledgeRepository = () => {
     const [sending, setSending] = useState(false)
     const [attachedFile, setAttachedFile] = useState(null)
     const [fileError, setFileError] = useState('')
+    const [error, setError] = useState('')
     const [lightboxSrc, setLightboxSrc] = useState(null)
     const messagesContainerRef = useRef(null)
     const wsRef = useRef(null)
@@ -58,10 +59,11 @@ const FarmerKnowledgeRepository = () => {
     const msgRefs = useRef({})
 
     const fetchTickets = () => {
-        api.get('/tickets/').then(res => {
+        api.get('/tickets/', { params: { repository: '1' } }).then(res => {
             setTickets(res.data)
+            setError('')
             setLoading(false)
-        }).catch(() => setLoading(false))
+        }).catch(() => { setError('Unable to load conversations. Please try again.'); setLoading(false) })
     }
 
     useEffect(() => {
@@ -70,10 +72,11 @@ const FarmerKnowledgeRepository = () => {
         })
         fetchTickets()
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+        const refresh = setInterval(() => { if (!document.hidden) fetchTickets() }, 30000)
         const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/ticket-updates/`)
         ws.onmessage = () => fetchTickets()
         ws.onerror = () => ws.close()
-        return () => ws.close()
+        return () => { clearInterval(refresh); ws.close() }
     }, [])
 
     useEffect(() => {
@@ -93,14 +96,14 @@ const FarmerKnowledgeRepository = () => {
     }, [location.state?.ticketId, tickets.length])
 
     const topFiltered = topTab === 'resolved'
-        ? tickets.filter(t => t.participants?.includes(user?.id) && t.status === 'resolved')
-        : tickets
+        ? tickets.filter(t => t.status === 'resolved')
+        : topTab === 'current' ? tickets.filter(t => t.status !== 'resolved') : tickets
 
     const sorted = [...topFiltered].sort((a, b) => new Date(b.date) - new Date(a.date))
 
     const filtered = sorted.filter(t => {
         const matchTab = activeTab === 'all' || t.status === activeTab
-        const matchSearch = `${t.concern} ${t.extensionWorkerName} ${t.categoryName || ""}`.toLowerCase().includes(search.toLowerCase())
+        const matchSearch = `${t.title || ""} ${t.concern} ${t.extensionWorkerName} ${t.categoryName || ""} ${t.answerSearchText || ""}`.toLowerCase().includes(search.toLowerCase())
         return matchTab && matchSearch
     })
 
@@ -113,6 +116,9 @@ const FarmerKnowledgeRepository = () => {
         try {
             const res = await api.get(`/tickets/${ticket.id}/`)
             setSelected(res.data)
+        } catch {
+            setSelected(null)
+            setError('Unable to open this conversation. Please try again.')
         } finally {
             setDetailLoading(false)
         }
@@ -120,7 +126,7 @@ const FarmerKnowledgeRepository = () => {
 
     const refetchSelected = async (ticketId) => {
         const res = await api.get(`/tickets/${ticketId}/`)
-        setSelected(res.data)
+        setSelected(current => current?.id === ticketId ? res.data : current)
     }
 
     useEffect(() => { refetchRef.current = refetchSelected }, [tickets])
@@ -141,7 +147,10 @@ const FarmerKnowledgeRepository = () => {
         }
         ws.onerror = () => ws.close()
         wsRef.current = ws
-        return () => { ws.close(); wsRef.current = null }
+        const refresh = setInterval(() => {
+            if (!document.hidden && selectedIdRef.current) refetchRef.current(selectedIdRef.current).catch(() => {})
+        }, 10000)
+        return () => { clearInterval(refresh); ws.close(); wsRef.current = null }
     }, [selected?.id])
 
     const scrollToBottom = () => {
@@ -153,7 +162,7 @@ const FarmerKnowledgeRepository = () => {
     useEffect(() => { scrollToBottom() }, [selected?.messages])
 
     const handleSendReply = async () => {
-        if (!reply.trim() && !attachedFile) return
+        if (sending || (!reply.trim() && !attachedFile)) return
         setSending(true)
         try {
             await api.post(`/tickets/${selected.id}/messages/`, {
@@ -164,9 +173,12 @@ const FarmerKnowledgeRepository = () => {
             })
             setReply('')
             setAttachedFile(null)
+            await refetchSelected(selected.id)
+            fetchTickets()
+            setFileError('')
             setTimeout(() => scrollToBottom(), 300)
         } catch (err) {
-            console.log('sendReply error', err.response?.data)
+            setFileError(err.response?.data?.error || 'Unable to send your reply. Please try again.')
         } finally {
             setSending(false)
         }
@@ -195,14 +207,14 @@ const FarmerKnowledgeRepository = () => {
                 {/* Search */}
                 <div className='relative'>
                     <MdSearch size={18} className='absolute left-3 top-1/2 -translate-y-1/2 opacity-50' color={theme.textColor} />
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search by concern or worker...'
+                    <input value={search} onChange={e => setSearch(e.target.value)} aria-label='Search past solutions and conversations' placeholder='Search concerns, past solutions, category or LGU personnel...'
                         className='w-full rounded-xl border bg-white py-3 pl-10 pr-4 text-sm outline-none transition focus:ring-2'
                         style={{ borderColor: `${theme.secondaryColor}80`, color: theme.textColor, '--tw-ring-color': `${theme.primaryColor}35` }} />
                 </div>
 
                 {/* Top-level Tabs */}
                 <div className='flex flex-wrap gap-2 rounded-xl p-1' style={{ backgroundColor: `${theme.primaryColor}08` }}>
-                    {[['all', 'My Tickets'], ['resolved', 'My Resolved']].map(([tab, label]) => (
+                    {[['all', 'All conversations'], ['current', 'Current conversations'], ['resolved', 'Past solutions']].map(([tab, label]) => (
                         <button key={tab} onClick={() => { setTopTab(tab); setActiveTab('all') }}
                             className='rounded-lg px-4 py-2 text-xs font-semibold transition-all'
                             style={{
@@ -228,6 +240,7 @@ const FarmerKnowledgeRepository = () => {
                     ))}
                 </div>
 
+                {error && <div role='alert' className='rounded-xl bg-red-50 p-3 text-sm text-red-700'>{error} <button onClick={fetchTickets} className='font-semibold underline'>Try again</button></div>}
                 {/* Ticket List */}
                 {loading ? (
                     <div className='flex justify-center py-16'>
@@ -252,6 +265,8 @@ const FarmerKnowledgeRepository = () => {
                                         {STATUS_LABEL[ticket.status] ?? ticket.status}
                                     </span>
                                 </div>
+                                {ticket.solution && <div className='rounded-lg bg-green-50 p-3 text-sm text-green-950'><p className='text-xs font-semibold'>LGU answer</p><p className='mt-1 line-clamp-3 whitespace-pre-wrap'>{ticket.solution}</p></div>}
+                                <button type='button' onClick={event => { event.stopPropagation(); handleView(ticket) }} className='self-start rounded-lg px-3 py-2 text-sm font-semibold' style={{ backgroundColor: `${theme.primaryColor}15`, color: theme.primaryColor }}>{ticket.status === 'resolved' ? 'View solution / Continue conversation' : 'Continue conversation'}</button>
                                 <TicketCapacity ticket={ticket} compact />
                                 {ticket.categoryName && <p className='text-xs font-semibold' style={{ color: theme.primaryColor }}>{ticket.categoryName}</p>}
                                 {ticket.title && <p className='text-xs opacity-60 line-clamp-1' style={{ color: theme.textColor }}>{ticket.concern}</p>}
@@ -375,8 +390,9 @@ const FarmerKnowledgeRepository = () => {
                         </div>
 
                         {/* Reply — only for participants */}
-                        {selected.participants?.includes(user?.id) && (
+                        {(selected.farmerId === user?.id || selected.participants?.includes(user?.id)) && (
                             <div className='flex flex-col gap-2'>
+                                {selected.status === 'resolved' && <p className='rounded-lg bg-amber-50 p-3 text-sm text-amber-900'>Need more help with this solution? Send a follow-up below to reopen this ticket for your assigned LGU personnel. Your previous conversation will be kept.</p>}
                                 {attachedFile && (
                                     <div className='flex items-center gap-2 px-3 py-2 rounded-lg text-xs'
                                         style={{ backgroundColor: theme.primaryColor + '10', border: `1px solid ${theme.secondaryColor}` }}>
@@ -421,7 +437,11 @@ const FarmerKnowledgeRepository = () => {
                         <div className='flex justify-between items-center'>
                             {selected.status === 'waiting_for_feedback' && selected.participants?.[0] === user?.id && (
                                 <Button size='sm' onClick={async () => {
-                                    await api.patch(`/tickets/${selected.id}/status/`, { status: 'resolved' })
+                                    try {
+                                        await api.patch(`/tickets/${selected.id}/status/`, { status: 'resolved' })
+                                        await refetchSelected(selected.id)
+                                        fetchTickets()
+                                    } catch { setFileError('Unable to confirm resolution. Please try again.') }
                                 }} loading={sending}>
                                     Confirm Resolved
                                 </Button>

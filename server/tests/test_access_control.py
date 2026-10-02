@@ -174,6 +174,28 @@ class RequestTests(unittest.TestCase):
                 self.assertEqual(self.request(tickets.TicketMessageView, 'post', user, {'message': 'Hello'}, ticket_id='t1').status_code, 201)
                 self.assertEqual(write.call_args.args[1]['senderId'], user.id)
 
+    def test_farmer_followup_reopens_resolved_ticket(self):
+        with patch.object(tickets, 'get_ticket_by_id', return_value={**TICKET, 'status': 'resolved'}), patch.object(tickets, 'add_message') as write, patch.object(tickets, 'update_ticket_status') as update, patch('accounts.firebase_service.get_user_by_id', return_value=FARMER), patch('accounts.firebase_service.create_notification') as notify, patch('accounts.firebase_service.notify_user_ws'):
+            response = self.request(tickets.TicketMessageView, 'post', actor(), {'message': 'I need more help with this solution'}, ticket_id='t1')
+            self.assertEqual(response.status_code, 201)
+            write.assert_called_once()
+            update.assert_called_once_with('t1', 'pending')
+            self.assertEqual(notify.call_args.args[0], 'w1')
+
+    def test_repository_only_exposes_authorized_lgu_answers(self):
+        messages = [{'senderRole': 'farmer', 'message': 'Private farmer text'},
+                    {'senderRole': 'extension_worker', 'message': 'Pinned advice', 'isPinned': True},
+                    {'senderRole': 'extension_worker', 'message': 'Latest advice'}]
+        req = APIRequestFactory().get('/tickets/?repository=1')
+        force_authenticate(req, user=actor())
+        with patch.object(tickets, 'get_tickets_by_farmer', return_value=[TICKET]) as lookup, patch.object(tickets, 'get_ticket_messages', return_value=messages) as read:
+            response = tickets.TicketListView.as_view()(req)
+            self.assertEqual(response.status_code, 200)
+            lookup.assert_called_once_with('f1')
+            read.assert_called_once_with('t1')
+            self.assertEqual(response.data[0]['solution'], 'Pinned advice')
+            self.assertEqual(response.data[0]['answerSearchText'], 'Pinned advice\nLatest advice')
+
     def test_join_cannot_grant_access_to_another_farmers_ticket(self):
         payload = {'title': 'Rice', 'concern': 'Rice leaves', 'extensionWorkerId': 'w1', 'categoryId': 'rice', 'joinExisting': True, 'ticketId': 't1'}
         with patch.object(tickets, 'get_ticket_by_id', return_value=TICKET), patch('accounts.firebase_service.get_user_by_id', return_value=WORKER), patch('tickets.firebase_service.join_ticket') as join:
