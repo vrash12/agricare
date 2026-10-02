@@ -46,6 +46,7 @@ const FarmerKnowledgeRepository = () => {
     const [visits, setVisits] = useState(0)
     const [reply, setReply] = useState('')
     const [sending, setSending] = useState(false)
+    const [joining, setJoining] = useState(false)
     const [attachedFile, setAttachedFile] = useState(null)
     const [fileError, setFileError] = useState('')
     const [error, setError] = useState('')
@@ -95,15 +96,17 @@ const FarmerKnowledgeRepository = () => {
         }
     }, [location.state?.ticketId, tickets.length])
 
+    const isMember = (ticket) => ticket?.farmerId === user?.id || !!ticket?.participants?.includes(user?.id)
+
     const topFiltered = topTab === 'resolved'
-        ? tickets.filter(t => t.status === 'resolved')
-        : topTab === 'current' ? tickets.filter(t => t.status !== 'resolved') : tickets
+        ? tickets.filter(t => isMember(t) && t.status === 'resolved')
+        : topTab === 'my' ? tickets.filter(isMember) : tickets
 
     const sorted = [...topFiltered].sort((a, b) => new Date(b.date) - new Date(a.date))
 
     const filtered = sorted.filter(t => {
         const matchTab = activeTab === 'all' || t.status === activeTab
-        const matchSearch = `${t.title || ""} ${t.concern} ${t.extensionWorkerName} ${t.categoryName || ""} ${t.answerSearchText || ""}`.toLowerCase().includes(search.toLowerCase())
+        const matchSearch = `${t.title || ""} ${t.concern} ${t.extensionWorkerName} ${t.categoryName || ""} ${t.farmerName || ""} ${t.barangay || ""} ${t.answerSearchText || ""}`.toLowerCase().includes(search.toLowerCase())
         return matchTab && matchSearch
     })
 
@@ -184,6 +187,21 @@ const FarmerKnowledgeRepository = () => {
         }
     }
 
+    const handleJoin = async () => {
+        if (joining || !selected) return
+        setJoining(true)
+        setFileError('')
+        try {
+            await api.post(`/tickets/${selected.id}/join/`)
+            await refetchSelected(selected.id)
+            fetchTickets()
+        } catch (err) {
+            setFileError(err.response?.data?.error || err.response?.data?.detail || 'Unable to join this conversation. Please try again.')
+        } finally {
+            setJoining(false)
+        }
+    }
+
     const handleFileChange = (e) => {
         const file = e.target.files[0]
         if (!file) return
@@ -200,7 +218,7 @@ const FarmerKnowledgeRepository = () => {
             <div className='mx-auto flex w-full max-w-6xl flex-col gap-6'>
                 <KnowledgeSearch />
                 <div className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
-                    <div><p className='text-xs font-semibold uppercase tracking-[0.16em]' style={{ color: theme.primaryColor }}>Your support space</p><h1 className='mt-1 text-2xl font-bold' style={{ color: theme.textColor }}>Conversations & tickets</h1><p className='mt-1 text-sm opacity-60' style={{ color: theme.textColor }}>Follow your concerns and continue conversations with extension workers.</p></div>
+                    <div><p className='text-xs font-semibold uppercase tracking-[0.16em]' style={{ color: theme.primaryColor }}>Your support space</p><h1 className='mt-1 text-2xl font-bold' style={{ color: theme.textColor }}>Conversations & tickets</h1><p className='mt-1 text-sm opacity-60' style={{ color: theme.textColor }}>Browse past solutions from all farmers, follow your concerns, and continue conversations with LGU personnel.</p></div>
                     <span className='flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium' style={{ backgroundColor: `${theme.primaryColor}12`, color: theme.primaryColor }}><MdMenuBook size={14} /> {visits} knowledge visit{visits !== 1 ? 's' : ''}</span>
                 </div>
 
@@ -214,7 +232,7 @@ const FarmerKnowledgeRepository = () => {
 
                 {/* Top-level Tabs */}
                 <div className='flex flex-wrap gap-2 rounded-xl p-1' style={{ backgroundColor: `${theme.primaryColor}08` }}>
-                    {[['all', 'All conversations'], ['current', 'Current conversations'], ['resolved', 'Past solutions']].map(([tab, label]) => (
+                    {[['all', 'All Tickets'], ['my', 'My Tickets'], ['resolved', 'My Resolved']].map(([tab, label]) => (
                         <button key={tab} onClick={() => { setTopTab(tab); setActiveTab('all') }}
                             className='rounded-lg px-4 py-2 text-xs font-semibold transition-all'
                             style={{
@@ -266,10 +284,11 @@ const FarmerKnowledgeRepository = () => {
                                     </span>
                                 </div>
                                 {ticket.solution && <div className='rounded-lg bg-green-50 p-3 text-sm text-green-950'><p className='text-xs font-semibold'>LGU answer</p><p className='mt-1 line-clamp-3 whitespace-pre-wrap'>{ticket.solution}</p></div>}
-                                <button type='button' onClick={event => { event.stopPropagation(); handleView(ticket) }} className='self-start rounded-lg px-3 py-2 text-sm font-semibold' style={{ backgroundColor: `${theme.primaryColor}15`, color: theme.primaryColor }}>{ticket.status === 'resolved' ? 'View solution / Continue conversation' : 'Continue conversation'}</button>
+                                <button type='button' onClick={event => { event.stopPropagation(); handleView(ticket) }} className='self-start rounded-lg px-3 py-2 text-sm font-semibold' style={{ backgroundColor: `${theme.primaryColor}15`, color: theme.primaryColor }}>{!isMember(ticket) ? 'View conversation / Join' : ticket.status === 'resolved' ? 'View solution / Continue conversation' : 'Continue conversation'}</button>
                                 <TicketCapacity ticket={ticket} compact />
                                 {ticket.categoryName && <p className='text-xs font-semibold' style={{ color: theme.primaryColor }}>{ticket.categoryName}</p>}
                                 {ticket.title && <p className='text-xs opacity-60 line-clamp-1' style={{ color: theme.textColor }}>{ticket.concern}</p>}
+                                {ticket.farmerName && <p className='text-xs opacity-70' style={{ color: theme.textColor }}>Submitted by: {ticket.farmerId === user?.id ? 'You' : ticket.farmerName}{ticket.barangay ? ` · ${ticket.barangay}` : ''}</p>}
                                 <div className='flex items-center justify-between'>
                                     <p className='text-xs font-medium' style={{ color: theme.primaryColor }}>
                                         Assigned to: {ticket.extensionWorkerName || 'Unassigned'}
@@ -303,6 +322,7 @@ const FarmerKnowledgeRepository = () => {
 
                         <TicketCapacity ticket={selected} />
                         {selected.categoryName && <p className='text-sm' style={{ color: theme.textColor }}><strong>Category:</strong> {selected.categoryName}</p>}
+                        {selected.farmerName && <p className='text-sm' style={{ color: theme.textColor }}><strong>Submitted by:</strong> {selected.farmerId === user?.id ? 'You' : selected.farmerName}{selected.barangay ? ` · ${selected.barangay}` : ''}</p>}
                         {/* Title + Concern */}
                         <div className='flex flex-col gap-1'>
                             {selected.title && <p className='text-base font-semibold' style={{ color: theme.textColor }}>{selected.title}</p>}
@@ -389,8 +409,23 @@ const FarmerKnowledgeRepository = () => {
                             )}
                         </div>
 
+                        {/* Join — other farmers with the same concern can enter the conversation */}
+                        {!detailLoading && !isMember(selected) && (
+                            <div className='flex flex-col gap-2 rounded-lg p-3' style={{ backgroundColor: theme.primaryColor + '10' }}>
+                                <p className='text-sm' style={{ color: theme.textColor }}>
+                                    {selected.capacity?.status === 'full'
+                                        ? 'This conversation is full. Submit a new ticket if you need help with the same concern.'
+                                        : 'Have the same concern? Join this conversation to ask the assigned LGU personnel and receive updates.'}
+                                </p>
+                                {fileError && <p className='text-xs' style={{ color: theme.dangerColor }}>{fileError}</p>}
+                                {selected.capacity?.status !== 'full' && (
+                                    <Button size='sm' onClick={handleJoin} loading={joining} className='self-start'>Join this conversation</Button>
+                                )}
+                            </div>
+                        )}
+
                         {/* Reply — only for participants */}
-                        {(selected.farmerId === user?.id || selected.participants?.includes(user?.id)) && (
+                        {isMember(selected) && (
                             <div className='flex flex-col gap-2'>
                                 {selected.status === 'resolved' && <p className='rounded-lg bg-amber-50 p-3 text-sm text-amber-900'>Need more help with this solution? Send a follow-up below to reopen this ticket for your assigned LGU personnel. Your previous conversation will be kept.</p>}
                                 {attachedFile && (
@@ -435,7 +470,7 @@ const FarmerKnowledgeRepository = () => {
 
                         {/* Close */}
                         <div className='flex justify-between items-center'>
-                            {selected.status === 'waiting_for_feedback' && selected.participants?.[0] === user?.id && (
+                            {selected.status === 'waiting_for_feedback' && (selected.farmerId || selected.participants?.[0]) === user?.id && (
                                 <Button size='sm' onClick={async () => {
                                     try {
                                         await api.patch(`/tickets/${selected.id}/status/`, { status: 'resolved' })

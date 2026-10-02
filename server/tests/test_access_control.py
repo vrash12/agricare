@@ -6,6 +6,7 @@ import asyncio
 import os
 import sys
 import unittest
+from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -116,9 +117,11 @@ class RequestTests(unittest.TestCase):
         with patch.object(users, 'get_user_by_id', return_value=FARMER):
             self.assertEqual(self.request(users.ExtensionWorkerDetailView, 'get', actor(), user_id='f1').status_code, 404)
 
-    def test_ticket_details_only_for_members_assigned_worker_and_admin(self):
+    def test_ticket_details_for_farmers_assigned_worker_and_admin(self):
+        # Every farmer can read conversations in the shared knowledge repository.
         for user, expected in [(None, 403), (actor(), 200), (actor('farmer', 'f2'), 200),
-                               (actor('farmer', 'stranger'), 403), (actor('extension_worker', 'w1'), 200),
+                               (actor('farmer', 'stranger'), 200), (actor('farmer', 'disabled', is_active=False), 403),
+                               (actor('extension_worker', 'w1'), 200),
                                (actor('extension_worker', 'w2'), 403), (actor('lgu_personnel', 'w1'), 200),
                                (actor('admin', 'a1'), 200), (actor('unknown', 'x'), 403)]:
             with self.subTest(user=user), patch.object(tickets, 'get_ticket_by_id', return_value=TICKET), patch.object(tickets, 'get_ticket_messages', return_value=[]) as read:
@@ -182,34 +185,76 @@ class RequestTests(unittest.TestCase):
             update.assert_called_once_with('t1', 'pending')
             self.assertEqual(notify.call_args.args[0], 'w1')
 
-    def test_repository_only_exposes_authorized_lgu_answers(self):
-        messages = [{'senderRole': 'farmer', 'message': 'Private farmer text'},
+    def test_repository_lists_every_farmers_ticket_with_lgu_answers(self):
+        messages = [{'senderRole': 'farmer', 'message': 'Farmer text'},
                     {'senderRole': 'extension_worker', 'message': 'Pinned advice', 'isPinned': True},
                     {'senderRole': 'extension_worker', 'message': 'Latest advice'}]
+        other = {**TICKET, 'id': 't2', 'participants': ['other'], 'farmerId': 'other'}
         req = APIRequestFactory().get('/tickets/?repository=1')
         force_authenticate(req, user=actor())
-        with patch.object(tickets, 'get_tickets_by_farmer', return_value=[TICKET]) as lookup, patch.object(tickets, 'get_ticket_messages', return_value=messages) as read:
+        with patch.object(tickets, 'get_all_tickets', return_value=[TICKET, other]) as lookup, patch.object(tickets, 'get_tickets_by_farmer') as own, patch.object(tickets, 'get_ticket_messages', return_value=messages) as read:
             response = tickets.TicketListView.as_view()(req)
             self.assertEqual(response.status_code, 200)
-            lookup.assert_called_once_with('f1')
-            read.assert_called_once_with('t1')
-            self.assertEqual(response.data[0]['solution'], 'Pinned advice')
-            self.assertEqual(response.data[0]['answerSearchText'], 'Pinned advice\nLatest advice')
+            lookup.assert_called_once_with()
+            own.assert_not_called()
+            self.assertEqual([call.args[0] for call in read.call_args_list], ['t1', 't2'])
+            self.assertEqual([ticket['id'] for ticket in response.data], ['t1', 't2'])
+            self.assertEqual(response.data[1]['solution'], 'Pinned advice')
+            self.assertEqual(response.data[1]['answerSearchText'], 'Pinned advice\nLatest advice')
 
-    def test_join_cannot_grant_access_to_another_farmers_ticket(self):
-        payload = {'title': 'Rice', 'concern': 'Rice leaves', 'extensionWorkerId': 'w1', 'categoryId': 'rice', 'joinExisting': True, 'ticketId': 't1'}
-        with patch.object(tickets, 'get_ticket_by_id', return_value=TICKET), patch('accounts.firebase_service.get_user_by_id', return_value=WORKER), patch('tickets.firebase_service.join_ticket') as join:
-            self.assertEqual(self.request(tickets.SubmitTicketView, 'post', actor('farmer', 'outsider'), payload).status_code, 403)
+    def join_mocks(self, ticket, result=None, **join_kwargs):
+        channel = SimpleNamespace(group_send=AsyncMock())
+        join = patch.object(tickets, 'join_ticket', return_value=result or {'joined': True, 'capacity': ticket_capacity(ticket)}, **join_kwargs)
+        return [patch.object(tickets, 'get_ticket_by_id', return_value=ticket), join,
+                patch('accounts.firebase_service.get_user_by_id', return_value=FARMER),
+                patch('accounts.firebase_service.create_notification'), patch('accounts.firebase_service.notify_user_ws'),
+                patch('accounts.firebase_service.broadcast_ticket_update'), patch('channels.layers.get_channel_layer', return_value=channel)]
+
+    def test_continue_existing_adds_another_farmer_to_same_category_ticket(self):
+        payload = {'title': 'Rice', 'concern': 'Rice leaves', 'categoryId': 'rice', 'joinExisting': True, 'ticketId': 't1'}
+        ticket = {**TICKET, 'categoryId': 'rice'}
+        with ExitStack() as stack:
+            mocks = [stack.enter_context(item) for item in self.join_mocks(ticket)]
+            join, notify = mocks[1], mocks[3]
+            self.assertEqual(self.request(tickets.SubmitTicketView, 'post', actor('farmer', 'outsider'), payload).status_code, 200)
+            join.assert_called_once_with('t1', 'outsider')
+            self.assertEqual(notify.call_args.args[0], 'w1')
+            self.assertEqual(self.request(tickets.SubmitTicketView, 'post', actor('farmer', 'outsider'), {**payload, 'categoryId': 'corn'}).status_code, 403)
+            join.assert_called_once()
+
+    def test_join_view_allows_only_active_farmers_and_enforces_capacity(self):
+        with ExitStack() as stack:
+            mocks = [stack.enter_context(item) for item in self.join_mocks(TICKET)]
+            join = mocks[1]
+            self.assertEqual(self.request(tickets.TicketJoinView, 'post', actor('farmer', 'outsider'), ticket_id='t1').status_code, 200)
+            join.assert_called_once_with('t1', 'outsider')
+            for user in [None, actor('extension_worker', 'w1'), actor('admin', 'a1'), actor('farmer', 'x', is_pending=True)]:
+                with self.subTest(user=user):
+                    self.assertIn(self.request(tickets.TicketJoinView, 'post', user, ticket_id='t1').status_code, (401, 403))
+            join.assert_called_once()
+        with patch.object(tickets, 'get_ticket_by_id', return_value=None), patch.object(tickets, 'join_ticket') as join:
+            self.assertEqual(self.request(tickets.TicketJoinView, 'post', actor(), ticket_id='missing').status_code, 404)
             join.assert_not_called()
+        with ExitStack() as stack:
+            for item in self.join_mocks(TICKET, side_effect=TicketCapacityReached()):
+                stack.enter_context(item)
+            self.assertEqual(self.request(tickets.TicketJoinView, 'post', actor('farmer', 'eleventh'), ticket_id='t1').status_code, 409)
 
-    def test_matching_filters_other_farmers_before_ranking(self):
-        docs = [SimpleNamespace(id='other', to_dict=lambda: {**TICKET, 'id': 'other', 'participants': ['other'], 'keywords': ['rice']}),
-                SimpleNamespace(id='mine', to_dict=lambda: {**TICKET, 'id': 'mine', 'keywords': ['rice']})]
+    def test_viewing_farmer_cannot_post_until_joined(self):
+        with patch.object(tickets, 'get_ticket_by_id', return_value=TICKET), patch.object(tickets, 'add_message') as write:
+            self.assertEqual(self.request(tickets.TicketMessageView, 'post', actor('farmer', 'viewer'), {'message': 'Hi'}, ticket_id='t1').status_code, 403)
+            write.assert_not_called()
+
+    def test_matching_offers_other_farmers_tickets_but_prefers_own_and_skips_full(self):
+        records = [{**TICKET, 'id': 'other', 'participants': ['other'], 'farmerId': 'other', 'keywords': ['rice']},
+                   {**TICKET, 'id': 'mine', 'keywords': ['rice']},
+                   {**TICKET, 'id': 'full', 'participants': [f'p{i}' for i in range(10)], 'keywords': ['rice', 'leaves']}]
         fake = MagicMock()
-        fake.collection.return_value.where.return_value.get.return_value = docs
+        fake.collection.return_value.where.return_value.get.return_value = [SimpleNamespace(id=item['id'], to_dict=lambda record=item: record) for item in records]
         with patch.object(ticket_store, 'db', fake):
-            self.assertEqual(ticket_store.find_matching_ticket('w1', ['rice'], 'f1')['id'], 'mine')
-            self.assertIsNone(ticket_store.find_matching_ticket('w1', ['rice'], 'outsider'))
+            self.assertEqual(ticket_store.find_matching_ticket('w1', ['rice', 'leaves'], 'f1')['id'], 'mine')
+            self.assertEqual(ticket_store.find_matching_ticket('w1', ['rice', 'leaves'], 'outsider')['id'], 'other')
+            self.assertEqual(ticket_store.find_matching_ticket('w1', ['rice', 'leaves'], 'p3')['id'], 'full')
 
     def test_ticket_creation_routes_on_server_and_ignores_spoofed_assignee(self):
         payload = {'title': 'Rice', 'concern': 'Rice leaves', 'categoryId': 'rice', 'extensionWorkerId': 'attacker', 'farmerName': 'Forged', 'extensionWorkerName': 'Forged', 'categoryName': 'Forged'}
@@ -360,16 +405,18 @@ class RequestTests(unittest.TestCase):
             {**TICKET, 'id': 'mine', 'categoryId': 'rice', 'extensionWorkerId': 'different-worker', 'keywords': ['rice']},
             {**TICKET, 'id': 'wrong-category', 'categoryId': 'corn', 'keywords': ['rice']},
             {**TICKET, 'id': 'other-farmer', 'categoryId': 'rice', 'participants': ['outsider'], 'keywords': ['rice']},
+            {**TICKET, 'id': 'awaiting', 'categoryId': 'rice', 'status': 'waiting_for_feedback', 'keywords': ['rice']},
         ]
         fake = MagicMock()
         fake.collection.return_value.where.return_value.get.return_value = [SimpleNamespace(id=item['id'], to_dict=lambda record=item: record) for item in records]
         with patch.object(ticket_store, 'db', fake):
             self.assertEqual(ticket_store.find_matching_ticket(None, ['rice'], 'f1', category_id='rice')['id'], 'mine')
-        fake.collection.return_value.where.assert_called_once_with('participants', 'array_contains', 'f1')
+        fake.collection.return_value.where.assert_called_once_with('categoryId', '==', 'rice')
 
     def test_continue_existing_ticket_preserves_assignment_and_category(self):
         payload = {'title': 'Rice', 'concern': 'Rice leaves', 'categoryId': 'rice', 'joinExisting': True, 'ticketId': 't1'}
-        with patch.object(tickets, 'get_ticket_by_id', return_value={**TICKET, 'categoryId': 'rice'}), patch.object(tickets, 'route_concern') as route, patch.object(tickets, 'create_ticket') as create:
+        ticket = {**TICKET, 'categoryId': 'rice'}
+        with patch.object(tickets, 'get_ticket_by_id', return_value=ticket), patch.object(tickets, 'join_ticket', return_value={'joined': False, 'capacity': ticket_capacity(ticket)}), patch.object(tickets, 'route_concern') as route, patch.object(tickets, 'create_ticket') as create:
             self.assertEqual(self.request(tickets.SubmitTicketView, 'post', actor(), payload).status_code, 200)
             self.assertEqual(self.request(tickets.SubmitTicketView, 'post', actor(), {**payload, 'categoryId': 'corn'}).status_code, 403)
             route.assert_not_called()
@@ -486,15 +533,23 @@ class CapacityTests(unittest.TestCase):
                 response = request(tickets.TicketDetailView, 'get', user, ticket_id='t1')
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.data['capacity']['status'], 'full')
-            self.assertEqual(request(tickets.TicketDetailView, 'get', actor('farmer', 'outsider'), ticket_id='t1').status_code, 403)
+            self.assertEqual(request(tickets.TicketDetailView, 'get', actor('farmer', 'outsider'), ticket_id='t1').status_code, 200)
         payload = {'title': 'Rice', 'concern': 'Rice leaves', 'categoryId': 'rice'}
         with patch.object(tickets, 'find_matching_ticket', return_value=full):
             self.assertEqual(request(tickets.CheckTicketView, 'post', actor(), payload).data['ticket']['capacity']['count'], 10)
-        with patch.object(tickets, 'get_ticket_by_id', return_value=full), patch.object(tickets, 'create_ticket') as create:
+        transaction = MagicMock()
+        ref = MagicMock()
+        ref.get.return_value = SimpleNamespace(exists=True, to_dict=lambda: full)
+        fake = MagicMock()
+        fake.collection.return_value.document.return_value = ref
+        run_inline = lambda fn: (lambda _transaction, *args: fn(transaction, *args))
+        with patch.object(tickets, 'get_ticket_by_id', return_value=full), patch.object(tickets, 'create_ticket') as create, \
+                patch.object(ticket_store, 'db', fake), patch.object(ticket_store.firestore, 'transactional', side_effect=run_inline):
             response = request(tickets.SubmitTicketView, 'post', actor(), {**payload, 'joinExisting': True, 'ticketId': 't1'})
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.data['capacity']['status'], 'full')
-            self.assertEqual(request(tickets.SubmitTicketView, 'post', actor('farmer', 'outsider'), {**payload, 'joinExisting': True, 'ticketId': 't1'}).status_code, 403)
+            self.assertEqual(request(tickets.SubmitTicketView, 'post', actor('farmer', 'outsider'), {**payload, 'joinExisting': True, 'ticketId': 't1'}).status_code, 409)
+            transaction.update.assert_not_called()
             create.assert_not_called()
 
 
@@ -523,7 +578,8 @@ class SocketTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ticket_socket_checks_membership(self):
         with patch('tickets.firebase_service.get_ticket_by_id', return_value=TICKET):
-            for user, allowed in [(None, False), (actor('farmer', 'other'), False), (actor('extension_worker', 'w2'), False),
+            for user, allowed in [(None, False), (actor('farmer', 'other'), True), (actor('farmer', 'x', is_active=False), False),
+                                  (actor('extension_worker', 'w2'), False),
                                   (actor(), True), (actor('extension_worker', 'w1'), True), (actor('admin', 'a1'), True)]:
                 await self.connect(TicketConsumer, user, {'ticket_id': 't1'}, allowed)
 

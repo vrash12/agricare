@@ -37,7 +37,10 @@ const TYPE_LABEL = {
     ticket_waiting_feedback: 'Awaiting Confirmation',
 }
 
-const ROLE_LABEL = { farmer: 'Farmer', extension_worker: 'Extension Worker', admin: 'Admin' }
+// Count cards hidden on the farmer side; these notifications still appear in the timeline.
+const FARMER_HIDDEN_STATS = new Set(['new_farmer', 'new_extension_worker', 'ticket_waiting_feedback'])
+
+const ROLE_LABEL ={ farmer: 'Farmer', extension_worker: 'Extension Worker', admin: 'Admin' }
 
 const groupByDate = (notifications) => {
     const groups = {}
@@ -386,7 +389,7 @@ const Notifications = () => {
                                 {[
                                     { label: 'Total', value: notifications.length, color: theme.primaryColor },
                                     { label: 'Unread', value: unreadCount, color: '#f59e0b' },
-                                    ...Object.entries(TYPE_LABEL).map(([key, label]) => ({
+                                    ...Object.entries(TYPE_LABEL).filter(([key]) => user?.role !== 'farmer' || !FARMER_HIDDEN_STATS.has(key)).map(([key, label]) => ({
                                         label,
                                         value: notifications.filter(n => n.type === key).length,
                                         color: TYPE_COLOR[key],

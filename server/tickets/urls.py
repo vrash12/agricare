@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     CheckTicketView, SubmitTicketView, TicketListView, TicketDetailView,
     KnowledgeRepositoryVisitsView, TicketStatusView, TicketMessageView, TicketPinView,
-    TicketDeleteView, TicketMessageDeleteView, TicketAssignmentView, TicketCategoryListView
+    TicketDeleteView, TicketMessageDeleteView, TicketAssignmentView, TicketCategoryListView, TicketJoinView
 )
 
 urlpatterns = [
@@ -13,6 +13,7 @@ urlpatterns = [
     path('', TicketListView.as_view(), name='ticket-list'),
     path('<str:ticket_id>/', TicketDetailView.as_view(), name='ticket-detail'),
     path('<str:ticket_id>/delete/', TicketDeleteView.as_view(), name='ticket-delete'),
+    path('<str:ticket_id>/join/', TicketJoinView.as_view(), name='ticket-join'),
     path('<str:ticket_id>/status/', TicketStatusView.as_view(), name='ticket-status'),
     path('<str:ticket_id>/assignment/', TicketAssignmentView.as_view(), name='ticket-assignment'),
     path('<str:ticket_id>/messages/', TicketMessageView.as_view(), name='ticket-messages'),

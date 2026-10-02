@@ -4,12 +4,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from accounts.permissions import IsApplicationUser, IsFarmer, IsAdmin, WORKER_ROLES
-from .permissions import require_ticket_access, require_assigned_worker, ticket_owner
+from .permissions import require_ticket_access, require_ticket_view, require_assigned_worker, ticket_owner
 from .routing import get_category, route_concern, category_directory
 from .capacity import with_capacity, ticket_capacity
 from datetime import datetime, timezone, timedelta
 from .firebase_service import (
-    extract_keywords_combined, find_matching_ticket, create_ticket,
+    extract_keywords_combined, find_matching_ticket, create_ticket, join_ticket, get_all_tickets,
     get_all_tickets_filtered, get_available_ticket_years,
     get_tickets_by_worker, get_tickets_by_farmer, get_ticket_by_id, get_ticket_messages, get_message_by_id,
     get_knowledge_repository_visits, increment_knowledge_repository_visits,
@@ -24,6 +24,27 @@ def get_assignable_worker(worker_id):
     if not worker or worker.get('role') not in WORKER_ROLES or not worker.get('isActive', True) or worker.get('isPending'):
         raise ValidationError({'error': 'Choose an active, approved LGU worker.'})
     return worker
+
+
+def join_farmer_to_ticket(user, ticket):
+    """Add a farmer to another farmer's conversation, enforcing the participant limit."""
+    result = join_ticket(ticket['id'], user.id)
+    if result['joined']:
+        from accounts.firebase_service import get_user_by_id, create_notification, notify_user_ws, broadcast_ticket_update
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+        farmer = get_user_by_id(user.id) or {}
+        farmer_name = f"{farmer.get('firstName', '')} {farmer.get('lastName', '')}".strip() or 'A farmer'
+        worker_id = ticket.get('extensionWorkerId')
+        if worker_id:
+            message = f"{farmer_name} joined the ticket \"{ticket.get('title', '')}\"."
+            create_notification(worker_id, 'ticket_reply', message, user.id, ticket['id'])
+            notify_user_ws(worker_id, {'type': 'ticket_reply', 'message': message})
+        broadcast_ticket_update()
+        async_to_sync(get_channel_layer().group_send)(f"ticket_{ticket['id']}", {
+            'type': 'ticket_message', 'data': {'type': 'participants_updated'},
+        })
+    return result
 
 
 class TicketCategoryListView(APIView):
@@ -71,10 +92,11 @@ class SubmitTicketView(APIView):
             if not ticket_id:
                 return Response({'error': 'ticketId is required'}, status=status.HTTP_400_BAD_REQUEST)
             ticket = get_ticket_by_id(ticket_id)
-            require_ticket_access(request.user, ticket)
+            require_ticket_view(request.user, ticket)
             if ticket.get('categoryId') != category['id']:
                 raise PermissionDenied('This ticket belongs to a different category.')
-            return Response({'message': 'Continue your existing ticket', 'ticketId': ticket_id, 'capacity': ticket_capacity(ticket)})
+            result = join_farmer_to_ticket(request.user, ticket)
+            return Response({'message': 'Continue the existing ticket', 'ticketId': ticket_id, 'capacity': result['capacity']})
 
         worker = route_concern(category)
         if not worker:
@@ -123,16 +145,17 @@ class TicketListView(APIView):
                     ticket['barangay'] = owners.get(owner_id, {}).get('barangay', '')
             return Response([with_capacity(ticket) for ticket in tickets])
         if request.user.role == 'farmer':
-            tickets = get_tickets_by_farmer(request.user.id)
-            if request.query_params.get('repository') == '1':
-                tickets = [dict(ticket) for ticket in tickets]
-                for ticket in tickets:
-                    require_ticket_access(request.user, ticket)
-                    answers = [m for m in get_ticket_messages(ticket['id'])
-                               if m.get('senderRole') in WORKER_ROLES and m.get('message')]
-                    preferred = next((m for m in reversed(answers) if m.get('isPinned')), None)
-                    ticket['solution'] = (preferred or (answers[-1] if answers else {})).get('message', '')
-                    ticket['answerSearchText'] = '\n'.join(m['message'] for m in answers)
+            if request.query_params.get('repository') != '1':
+                return Response([with_capacity(ticket) for ticket in get_tickets_by_farmer(request.user.id)])
+            # The knowledge repository shows every farmer's conversation and LGU answer.
+            tickets = [dict(ticket) for ticket in get_all_tickets()]
+            for ticket in tickets:
+                require_ticket_view(request.user, ticket)
+                answers = [m for m in get_ticket_messages(ticket['id'])
+                           if m.get('senderRole') in WORKER_ROLES and m.get('message')]
+                preferred = next((m for m in reversed(answers) if m.get('isPinned')), None)
+                ticket['solution'] = (preferred or (answers[-1] if answers else {})).get('message', '')
+                ticket['answerSearchText'] = '\n'.join(m['message'] for m in answers)
             return Response([with_capacity(ticket) for ticket in tickets])
         from datetime import date
         now = datetime.now(timezone.utc)
@@ -161,9 +184,20 @@ class TicketDetailView(APIView):
 
     def get(self, request, ticket_id):
         ticket = get_ticket_by_id(ticket_id)
-        require_ticket_access(request.user, ticket)
+        require_ticket_view(request.user, ticket)
         messages = get_ticket_messages(ticket_id)
         return Response({**with_capacity(ticket), 'messages': messages})
+
+class TicketJoinView(APIView):
+    permission_classes = [IsAuthenticated, IsFarmer]
+
+    def post(self, request, ticket_id):
+        ticket = get_ticket_by_id(ticket_id)
+        require_ticket_view(request.user, ticket)
+        result = join_farmer_to_ticket(request.user, ticket)
+        return Response({'message': 'You joined this conversation.' if result['joined'] else 'You are already in this conversation.',
+                         'ticketId': ticket_id, 'capacity': result['capacity']})
+
 
 class TicketAssignmentView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]

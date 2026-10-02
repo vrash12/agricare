@@ -19,6 +19,20 @@ def can_access_ticket(user, ticket):
     )
 
 
+def can_view_ticket(user, ticket):
+    """Farmers may read every ticket so past solutions stay searchable; only members can participate."""
+    if not is_active_user(user) or not ticket:
+        return False
+    return user.role == 'farmer' or can_access_ticket(user, ticket)
+
+
+def require_ticket_view(user, ticket):
+    if not ticket:
+        raise NotFound('Ticket not found')
+    if not can_view_ticket(user, ticket):
+        raise PermissionDenied('You do not have access to this ticket.')
+
+
 def require_ticket_access(user, ticket):
     if not ticket:
         raise NotFound('Ticket not found')

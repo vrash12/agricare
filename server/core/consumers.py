@@ -2,7 +2,7 @@ import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from accounts.permissions import APPLICATION_ROLES, is_active_user
-from tickets.permissions import can_access_ticket
+from tickets.permissions import can_view_ticket
 from .websocket_auth import authenticate_scope
 
 class SystemConsumer(AsyncWebsocketConsumer):
@@ -77,7 +77,8 @@ class TicketConsumer(ProtectedConsumer):
             return False
         from tickets.firebase_service import get_ticket_by_id
         ticket = await database_sync_to_async(get_ticket_by_id)(self.scope['url_route']['kwargs']['ticket_id'])
-        return can_access_ticket(self.scope['user'], ticket)
+        # Viewers of the shared repository receive live updates; posting still requires membership.
+        return can_view_ticket(self.scope['user'], ticket)
 
     def get_group_name(self):
         return f"ticket_{self.scope['url_route']['kwargs']['ticket_id']}"

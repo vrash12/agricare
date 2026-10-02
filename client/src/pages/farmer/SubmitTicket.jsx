@@ -23,7 +23,9 @@ export default function SubmitTicket() {
     const [error, setError] = useState('')
     const [review, setReview] = useState(null)
     const fileInput = useRef(null)
+    const { user } = useSelector(state => state.auth)
     const category = categories.find(item => item.id === categoryId)
+    const ownsExisting = review?.existing && (review.existing.farmerId === user?.id || review.existing.participants?.includes(user?.id))
 
     const loadCategories = () => {
         api.get('/tickets/categories/').then(({ data }) => { setCategories(data); setCategoryError('') })
@@ -84,14 +86,14 @@ export default function SubmitTicket() {
             {categoryError && <div role='alert' className='mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900'>{categoryError} <button onClick={() => { setLoading(true); loadCategories() }} className='font-semibold underline'>Try again</button></div>}
             {error && <p role='alert' className='mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800'>{error}</p>}
             {review ? <div className='space-y-4' style={{ color: theme.textColor }}>
-                <h2 className='text-lg font-semibold'>{review.existing ? 'You have a similar ticket' : 'Review your concern'}</h2>
+                <h2 className='text-lg font-semibold'>{review.existing ? (ownsExisting ? 'You have a similar ticket' : 'Another farmer has a similar concern') : 'Review your concern'}</h2>
                 <div className='rounded-xl bg-slate-50 p-4'><p className='text-xs font-semibold uppercase tracking-wide'>{category?.name}</p><p className='mt-2 font-semibold'>{title}</p><p className='mt-1 whitespace-pre-wrap text-sm'>{concern}</p>{attachment && <p className='mt-2 text-xs'>Attachment: {attachment.name}</p>}</div>
-                {review.existing ? <div className='rounded-xl border p-4' style={inputStyle}><p className='font-semibold'>{review.existing.title}</p><p className='mt-1 text-sm'>Assigned to: {review.existing.extensionWorkerName || 'Unassigned'}</p><div className='mt-3'><TicketCapacity ticket={review.existing} /></div><p className='mt-2 text-sm'>Continue this conversation, or create a separate ticket for a different issue.</p></div>
+                {review.existing ? <div className='rounded-xl border p-4' style={inputStyle}><p className='font-semibold'>{review.existing.title}</p><p className='mt-1 text-sm'>Assigned to: {review.existing.extensionWorkerName || 'Unassigned'}</p><div className='mt-3'><TicketCapacity ticket={review.existing} /></div><p className='mt-2 text-sm'>{ownsExisting ? 'Continue this conversation, or create a separate ticket for a different issue.' : 'Join this conversation to see the LGU answer and ask your question there, or create a separate ticket for a different issue.'}</p></div>
                     : <p className='text-sm'>Your ticket will be assigned automatically based on this category. You will see the assigned person’s name in your ticket.</p>}
                 <div className='flex flex-wrap justify-end gap-2'>
                     <Button variant='ghost' disabled={busy} onClick={() => { setReview(null); setError('') }}>Back</Button>
                     <Button onClick={() => submitTicket(false)} loading={busy}>{review.existing ? 'Create New Ticket' : 'Confirm and Submit'}</Button>
-                    {review.existing && <Button variant='secondary' disabled={busy} onClick={() => submitTicket(true)}>Continue Existing Ticket</Button>}
+                    {review.existing && <Button variant='secondary' disabled={busy} onClick={() => submitTicket(true)}>{ownsExisting ? 'Continue Existing Ticket' : 'Join Existing Ticket'}</Button>}
                 </div>
             </div> : <form onSubmit={checkTicket} className='space-y-5'>
                 <fieldset disabled={busy} className='space-y-5'>

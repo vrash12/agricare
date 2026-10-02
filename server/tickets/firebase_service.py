@@ -31,20 +31,23 @@ def extract_keywords_combined(title, concern):
     return list(set(extract_keywords(title) + extract_keywords(concern)))
 
 def find_matching_ticket(extension_worker_id, keywords, farmer_id, category_id=None):
+    """Find the most similar ticket from any farmer so similar concerns share one conversation."""
     query = db.collection(TICKETS_COLLECTION)
     if category_id:
-        docs = query.where('participants', 'array_contains', farmer_id).get()
+        docs = query.where('categoryId', '==', category_id).get()
     else:
         docs = query.where('extensionWorkerId', '==', extension_worker_id).get()
     best_match = None
-    best_score = 0
+    best_score = (0, False)
     for doc in docs:
         data = doc.to_dict()
         if category_id and data.get('categoryId') != category_id:
             continue
-        if farmer_id not in (data.get('participants') or []) and data.get('farmerId') != farmer_id:
-            continue
         if data.get('status') not in ['pending', 'ongoing', 'resolved']:
+            continue
+        is_member = farmer_id in farmer_participants(data)
+        # A full ticket can only be offered to farmers who are already in it.
+        if not is_member and ticket_capacity(data)['status'] == 'full':
             continue
         stored = data.get('keywords', [])
         if stored:
@@ -53,8 +56,10 @@ def find_matching_ticket(extension_worker_id, keywords, farmer_id, category_id=N
             existing_keywords = set(extract_keywords_combined(data.get('title', ''), data.get('concern', '')))
         incoming_keywords = set(keywords)
         overlap = len(existing_keywords & incoming_keywords)
-        if overlap > 0 and overlap > best_score:
-            best_score = overlap
+        # Prefer the farmer's own ticket when the similarity is equal.
+        score = (overlap, is_member)
+        if overlap > 0 and score > best_score:
+            best_score = score
             best_match = {'id': doc.id, **data}
     return best_match
 
@@ -276,9 +281,17 @@ def increment_knowledge_repository_visits():
 
 
 def get_tickets_by_farmer(farmer_id):
-    docs = db.collection(TICKETS_COLLECTION).where('participants', 'array_contains', farmer_id).get()
-    return sorted([{'id': doc.id, **doc.to_dict()} for doc in docs],
-                  key=lambda ticket: ticket.get('date', ''), reverse=True)
+    # New tickets store farmers in participants; older records may only have farmerId.
+    # Read both fields so an account created after migration still sees its history.
+    queries = [
+        db.collection(TICKETS_COLLECTION).where('participants', 'array_contains', farmer_id).get(),
+        db.collection(TICKETS_COLLECTION).where('farmerId', '==', farmer_id).get(),
+    ]
+    by_id = {}
+    for docs in queries:
+        for doc in docs:
+            by_id[doc.id] = {'id': doc.id, **doc.to_dict()}
+    return sorted(by_id.values(), key=lambda ticket: ticket.get('date', ''), reverse=True)
 
 
 def get_message_by_id(ticket_id, message_id):
