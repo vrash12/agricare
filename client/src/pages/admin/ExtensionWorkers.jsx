@@ -24,6 +24,9 @@ const exportCSV = (columns, rows, filename) => {
 const ExtensionWorkers = () => {
     const theme = useSelector((state) => state.theme)
 
+    const [editPerson, setEditPerson] = useState(null)
+    const [personError, setPersonError] = useState('')
+    const [personSaving, setPersonSaving] = useState(false)
     const [workers, setWorkers] = useState([])
     const [positions, setPositions] = useState([])
     const [loading, setLoading] = useState(true)
@@ -143,12 +146,30 @@ const ExtensionWorkers = () => {
         fetchPositions()
     }
 
+    const savePerson = async e => {
+        e.preventDefault(); setPersonSaving(true); setPersonError('')
+        try {
+            if (editPerson.id) await api.patch(`/users/extension-workers/${editPerson.id}/`, editPerson)
+            else await api.post('/users/extension-workers/', editPerson)
+            setEditPerson(null); fetchWorkers()
+        } catch (error) { setPersonError(error.response?.data?.error || 'Unable to save personnel. Please try again.') }
+        finally { setPersonSaving(false) }
+    }
     return (
         <AdminLayout>
+            <Dialog isOpen={!!editPerson} onClose={() => setEditPerson(null)} title={editPerson?.id ? 'Edit personnel' : 'Add personnel'}>
+                {editPerson && <form onSubmit={savePerson} className='flex flex-col gap-3 sm:w-96'>
+                    {['firstName', 'lastName', 'username', 'email', 'mobileNumber', 'barangay', ...(!editPerson.id ? ['password'] : [])].map(field => <label key={field} className='text-sm flex flex-col gap-1'>{{firstName:'First name', lastName:'Last name', username:'Username', email:'Email', mobileNumber:'Mobile number', barangay:'Barangay', password:'Initial password'}[field]}<input className='border rounded-lg p-2' type={field === 'password' ? 'password' : field === 'email' ? 'email' : 'text'} required={field !== 'barangay'} minLength={field === 'password' ? 8 : undefined} value={editPerson[field] || ''} onChange={e => setEditPerson({...editPerson, [field]: e.target.value})} /></label>)}
+                    <label className='text-sm flex flex-col gap-1'>Position<select className='border rounded-lg p-2' value={editPerson.positionId || ''} onChange={e => setEditPerson({...editPerson, positionId:e.target.value})}><option value=''>No position</option>{positions.filter(p => p.isActive !== false).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+                    {personError && <p role='alert' className='text-red-700 text-sm'>{personError}</p>}
+                    <button type='submit' disabled={personSaving} className='rounded-lg bg-green-800 text-white p-2'>{personSaving ? 'Saving…' : 'Save personnel'}</button>
+                </form>}
+            </Dialog>
             <div className='flex flex-col gap-4'>
                 <div className='flex items-center justify-between'>
-                    <h1 className='text-2xl font-bold' style={{ color: theme.textColor }}>Extension Workers</h1>
-                    <div className='flex items-center gap-2'>
+                    <h1 className='text-2xl font-bold' style={{ color: theme.textColor }}>Personnel Management</h1>
+                    <div className='flex flex-wrap items-center gap-2'>
+                        <Button size='sm' onClick={() => {setEditPerson({}); setPersonError('')}}>Add personnel</Button>
                         <Button size='sm' variant='outline' onClick={() => exportCSV(
                             ['Name', 'Username', 'Mobile', 'Position', 'Status', 'Registered'],
                             filtered.map(w => [
@@ -219,6 +240,7 @@ const ExtensionWorkers = () => {
                                                     {w.isActive ? <MdToggleOn size={22} color='#16a34a' /> : <MdToggleOff size={22} color='#dc2626' />}
                                                 </button>
                                             )}
+                                            <button className='text-sm underline' onClick={() => {setEditPerson({...w}); setPersonError('')}}>Edit</button>
                                             <button onClick={() => setDeleteConfirm({ open: true, id: w.id })} title='Delete' className='cursor-pointer hover:opacity-70'>
                                                 <MdDelete size={18} color={theme.dangerColor} />
                                             </button>

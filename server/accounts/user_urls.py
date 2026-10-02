@@ -5,7 +5,7 @@ from .user_views import (
     ExtensionWorkerToggleActiveView, ExtensionWorkerApproveView,
     ExtensionWorkerChangePositionView, UploadProfilePictureView,
     NotificationListView, NotificationReadView, NotificationMarkAllReadView,
-    AllUsersView, SendNotificationView
+    AllUsersView, SendNotificationView, NotificationLogsView
 )
 
 urlpatterns = [
@@ -18,6 +18,7 @@ urlpatterns = [
     path('extension-workers/<str:user_id>/approve/', ExtensionWorkerApproveView.as_view(), name='extension-worker-approve'),
     path('extension-workers/<str:user_id>/change-position/', ExtensionWorkerChangePositionView.as_view(), name='extension-worker-change-position'),
     path('profile-picture/', UploadProfilePictureView.as_view(), name='upload-profile-picture'),
+    path('notifications/logs/', NotificationLogsView.as_view(), name='notification-logs'),
     path('notifications/', NotificationListView.as_view(), name='notification-list'),
     path('notifications/read-all/', NotificationMarkAllReadView.as_view(), name='notification-read-all'),
     path('notifications/send/', SendNotificationView.as_view(), name='notification-send'),

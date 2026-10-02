@@ -59,8 +59,25 @@ class RequestTests(unittest.TestCase):
             force_authenticate(req, user=user)
         return view.as_view()(req, **kwargs)
 
+    def test_log_clear_is_scoped_and_reversible(self):
+        records = [{'id': 'read', 'isRead': True}, {'id': 'unread', 'isRead': False}, {'id': 'archived', 'isArchived': True}]
+        fake = MagicMock()
+        with patch.object(users, 'get_notifications', return_value=records), patch.object(users.store, 'db', fake), patch.object(users, 'notify_user_ws'):
+            response = self.request(users.NotificationLogsView, 'post', actor('admin', 'admin1'), {'action': 'clear_read'})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data['count'], 1)
+            fake.collection().document.assert_called_with('admin1')
+            fake.collection().document().collection().document.assert_called_with('read')
+            fake.collection().document().collection().document().update.assert_called_with({'isArchived': True})
+            response = self.request(users.NotificationLogsView, 'post', actor('admin', 'admin1'), {'action': 'restore'})
+            self.assertEqual(response.data['count'], 1)
+            fake.collection().document().collection().document().update.assert_called_with({'isArchived': False})
+
     def test_account_management_rejects_farmers_workers_and_anonymous(self):
         cases = [
+            (users.ExtensionWorkerListView, 'post', {}),
+            (users.ExtensionWorkerDetailView, 'patch', {'user_id': 'w1'}),
+            (users.NotificationLogsView, 'post', {}),
             (users.FarmerListView, 'get', {}),
             (users.FarmerDetailView, 'get', {'user_id': 'f1'}),
             (users.FarmerDetailView, 'delete', {'user_id': 'f1'}),
@@ -109,12 +126,13 @@ class RequestTests(unittest.TestCase):
                 self.assertEqual(response.status_code, expected)
                 self.assertEqual(read.call_count, int(expected == 200))
 
-    def test_ticket_list_uses_current_user_scope(self):
+    @patch('accounts.firebase_service.get_user_by_id', return_value={'barangay': 'Poblacion'})
+    def test_ticket_list_uses_current_user_scope(self, mock_owner):
         with patch.object(tickets, 'get_tickets_by_farmer', return_value=[TICKET]) as read:
             self.assertEqual(self.request(tickets.TicketListView, 'get', actor()).data, [with_capacity(TICKET)])
             read.assert_called_once_with('f1')
         with patch.object(tickets, 'get_tickets_by_worker', return_value=[TICKET]) as read:
-            self.assertEqual(self.request(tickets.TicketListView, 'get', actor('lgu_personnel', 'w1')).data, [with_capacity(TICKET)])
+            self.assertEqual(self.request(tickets.TicketListView, 'get', actor('lgu_personnel', 'w1')).data, [with_capacity({**TICKET, 'barangay': 'Poblacion'})])
             read.assert_called_once_with('w1')
 
     def test_unrelated_users_cannot_mutate_ticket(self):

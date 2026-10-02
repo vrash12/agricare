@@ -64,6 +64,9 @@ const Notifications = () => {
     const { user } = useSelector((state) => state.auth)
     const navigate = useNavigate()
     const [notifications, setNotifications] = useState([])
+    const [logAction, setLogAction] = useState('')
+    const [logBusy, setLogBusy] = useState(false)
+    const [logNotice, setLogNotice] = useState('')
     const [loading, setLoading] = useState(true)
     const [selected, setSelected] = useState(null)
     const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
@@ -86,6 +89,15 @@ const Notifications = () => {
 
     const [lightboxSrc, setLightboxSrc] = useState(null)
 
+    const manageLogs = async () => {
+        setLogBusy(true)
+        try {
+            const res = await api.post('/users/notifications/logs/', {action: logAction})
+            setLogNotice(`${res.data.count} notification log(s) ${logAction === 'restore' ? 'restored' : 'cleared'}.`)
+            setSelected(null); setMobileDetailOpen(false); setLogAction(''); fetchNotifications()
+        } catch {setLogNotice('Unable to update notification logs. Please try again.')}
+        finally {setLogBusy(false)}
+    }
     const fetchNotifications = () => {
         setLoading(true)
         api.get('/users/notifications/').then(res => {
@@ -302,6 +314,9 @@ const Notifications = () => {
                     </div>
                 </div>
 
+                {logNotice && <p role='status' className='text-sm'>{logNotice}</p>}
+                {user?.role === 'admin' && <details className='relative self-end'><summary aria-label='Notification log options' className='cursor-pointer rounded-lg border px-3 py-2'>&#8942; Log options</summary><div className='flex flex-col gap-2 rounded-lg border bg-white p-3'>{[['clear_read','Clear read logs'],['clear_all','Clear all my logs'],['restore','Restore cleared logs']].map(([action,label]) => <button key={action} className='text-left text-sm p-2 hover:bg-gray-100' onClick={() => setLogAction(action)}>{label}</button>)}</div></details>}
+                <Dialog isOpen={!!logAction} onClose={() => setLogAction('')} title='Manage notification logs'><p className='mb-4'>This affects only your notification history. Cleared logs can be restored from Log options.</p><Button onClick={manageLogs} loading={logBusy}>Confirm {logAction === 'restore' ? 'restore' : 'clear'}</Button></Dialog>
                 {loading ? (
                     <div className='flex justify-center py-24'>
                         <AiOutlineLoading3Quarters className='animate-spin' size={28} color={theme.primaryColor} />

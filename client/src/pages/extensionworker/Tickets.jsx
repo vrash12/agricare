@@ -37,6 +37,10 @@ const ExtensionWorkerTickets = () => {
     const [tickets, setTickets] = useState([])
     const [loading, setLoading] = useState(true)
     const [search, setSearch] = useState('')
+    const [barangay, setBarangay] = useState('')
+    const [month, setMonth] = useState('')
+    const [exportIds, setExportIds] = useState([])
+    const [exportNotice, setExportNotice] = useState('')
     const [activeTab, setActiveTab] = useState('all')
     const [selected, setSelected] = useState(null)
     const [detailLoading, setDetailLoading] = useState(false)
@@ -100,8 +104,22 @@ const ExtensionWorkerTickets = () => {
     const filtered = sorted.filter(t => {
         const matchTab = activeTab === 'all' || t.status === activeTab
         const matchSearch = t.concern.toLowerCase().includes(search.toLowerCase())
-        return matchTab && matchSearch
+        const date = new Date(t.date?.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(t.date || '') ? t.date : `${t.date}Z`)
+        const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit' }).formatToParts(Number.isNaN(date.getTime()) ? 0 : date)
+        const ticketMonth = `${parts.find(p => p.type === 'year').value}-${parts.find(p => p.type === 'month').value}`
+        return matchTab && matchSearch && (!barangay || (t.barangay || 'Unspecified') === barangay) && (!month || ticketMonth === month)
     })
+
+    const resolved = filtered.filter(t => t.status === 'resolved')
+    const chosen = resolved.filter(t => exportIds.includes(t.id))
+    const exportResolved = () => {
+        const cell = value => { const text = String(value ?? ''); return '"' + (/^[=+@\-\t\r]/.test(text) ? "'" : '') + text.replace(/"/g, '""') + '"' }
+        const rows = [['Ticket ID', 'Title', 'Concern', 'Barangay', 'Category', 'Assigned personnel', 'Submitted date', 'Status'], ...chosen.map(t => [t.id, t.title, t.concern, t.barangay, t.categoryName, t.extensionWorkerName, t.date, t.status])]
+        const url = URL.createObjectURL(new Blob(['\ufeff' + rows.map(r => r.map(cell).join(',')).join('\r\n')], {type: 'text/csv;charset=utf-8'}))
+        const link = document.createElement('a'); link.href = url; link.download = `resolved-concerns-${month || 'all-months'}.csv`; link.click()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+        setExportNotice(`Exported ${chosen.length} resolved concern(s).`)
+    }
 
     async function handleView(ticket) {
         setAccessNotice('')
@@ -225,6 +243,20 @@ const ExtensionWorkerTickets = () => {
                         style={{ borderColor: theme.secondaryColor, backgroundColor: '#fff', color: theme.textColor }} />
                 </div>
 
+                <section className='rounded-xl border bg-white p-4 flex flex-col gap-3' style={{borderColor: theme.secondaryColor}}>
+                    <h2 className='font-semibold'>Ticket history filters</h2>
+                    <div className='flex flex-wrap gap-3 items-end'>
+                        <label className='text-sm flex flex-col gap-1'>Barangay<select className='border rounded-lg p-2' value={barangay} onChange={e => {setBarangay(e.target.value); setExportIds([])}}><option value=''>All barangays</option>{[...new Set(tickets.map(t => t.barangay || 'Unspecified'))].sort().map(b => <option key={b}>{b}</option>)}</select></label>
+                        <label className='text-sm flex flex-col gap-1'>Submitted month<input type='month' className='border rounded-lg p-2' value={month} onChange={e => {setMonth(e.target.value); setExportIds([])}} /></label>
+                        <Button size='sm' variant='outline' onClick={() => {setBarangay(''); setMonth(''); setSearch(''); setActiveTab('all'); setExportIds([])}}>Reset filters</Button>
+                    </div>
+                    <p className='text-sm'>{filtered.length} matching tickets · {resolved.length} resolved</p>
+                    <div className='flex flex-wrap gap-3 items-center'>
+                        <label className='text-sm flex gap-2'><input type='checkbox' disabled={!resolved.length} checked={resolved.length > 0 && chosen.length === resolved.length} onChange={e => setExportIds(e.target.checked ? resolved.map(t => t.id) : [])} />Select all matching resolved concerns</label>
+                        <Button size='sm' disabled={!chosen.length || loading} onClick={exportResolved}>Export selected ({chosen.length})</Button>
+                    </div>
+                    {exportNotice && <p role='status' className='text-sm text-green-800'>{exportNotice}</p>}
+                </section>
                 {/* Status Tabs */}
                 <div className='flex gap-2 overflow-x-auto pb-1'>
                     {STATUS_TABS.map(tab => (
@@ -263,6 +295,8 @@ const ExtensionWorkerTickets = () => {
                                         {STATUS_LABEL[ticket.status] ?? ticket.status}
                                     </span>
                                 </div>
+                                {ticket.status === 'resolved' && <label className='flex items-center gap-2 text-sm' onClick={e => e.stopPropagation()}><input type='checkbox' checked={exportIds.includes(ticket.id)} onChange={e => setExportIds(ids => e.target.checked ? [...ids, ticket.id] : ids.filter(id => id !== ticket.id))} />Select for export</label>}
+                                <p className='text-xs'>Barangay: {ticket.barangay || 'Unspecified'}</p>
                                 <TicketCapacity ticket={ticket} compact />
                                 {ticket.categoryName && <p className='text-xs font-semibold' style={{ color: theme.primaryColor }}>{ticket.categoryName}</p>}
                                 {ticket.title && <p className='text-xs opacity-60 line-clamp-1' style={{ color: theme.textColor }}>{ticket.concern}</p>}

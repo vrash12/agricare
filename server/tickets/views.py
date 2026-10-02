@@ -95,6 +95,7 @@ class SubmitTicketView(APIView):
             'keywords': keywords,
             'farmerId': request.user.id,
             'farmerName': farmer_name,
+            'barangay': farmer.get('barangay', ''),
             'fileData': file_data,
             'fileName': file_name,
             'fileType': file_type,
@@ -111,7 +112,15 @@ class TicketListView(APIView):
 
     def get(self, request):
         if request.user.role in WORKER_ROLES:
-            tickets = get_tickets_by_worker(request.user.id)
+            tickets = [dict(t) for t in get_tickets_by_worker(request.user.id)]
+            from accounts.firebase_service import get_user_by_id
+            owners = {}
+            for ticket in tickets:
+                if 'barangay' not in ticket:
+                    owner_id = ticket_owner(ticket)
+                    if owner_id and owner_id not in owners:
+                        owners[owner_id] = get_user_by_id(owner_id) or {}
+                    ticket['barangay'] = owners.get(owner_id, {}).get('barangay', '')
             return Response([with_capacity(ticket) for ticket in tickets])
         if request.user.role == 'farmer':
             tickets = get_tickets_by_farmer(request.user.id)

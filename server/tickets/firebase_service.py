@@ -71,6 +71,8 @@ def create_ticket(data):
         'status': 'pending',
         'participants': [data['farmerId']],
         'farmerId': data['farmerId'],
+        'farmerName': data.get('farmerName', ''),
+        'barangay': data.get('barangay', ''),
         'assignedBy': 'system',
         'assignmentMethod': 'category',
         'assignedAt': datetime.now(timezone.utc).isoformat(),

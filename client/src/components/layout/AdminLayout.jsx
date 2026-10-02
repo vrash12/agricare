@@ -8,7 +8,7 @@ import api from '../../services/api'
 const adminNavLinks = [
     { label: 'Dashboard', path: '/dashboard', icon: MdDashboard },
     { label: 'Farmers', path: '/admin/farmers', icon: MdPeople },
-    { label: 'Extension Workers', path: '/admin/extension-workers', icon: MdSupportAgent },
+    { label: 'Personnel', path: '/admin/extension-workers', icon: MdSupportAgent },
     { label: 'Ticket Repository', path: '/admin/knowledge-repository', icon: MdConfirmationNumber },
     { label: 'Knowledge Base', path: '/admin/knowledge-base', icon: MdMenuBook },
     { label: 'Reports', path: '/admin/reports', icon: MdBarChart },
