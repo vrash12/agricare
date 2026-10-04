@@ -28,6 +28,7 @@ import SharedDashboard from './pages/shared/Dashboard'
 import SharedNotifications from './pages/shared/Notifications'
 
 import FarmerKnowledgeRepository from './pages/farmer/KnowledgeRepository'
+import FarmerAgriXa from './pages/farmer/AgriXa'
 import FarmerExtensionWorkers from './pages/farmer/ExtensionWorkers'
 import FarmerSubmitTicket from './pages/farmer/SubmitTicket'
 
@@ -42,6 +43,14 @@ import Templates from './pages/system/panel/Templates'
 function RequireAuth() {
   const isAuthenticated = useSelector((state) => state.auth.isAuthenticated)
   return isAuthenticated && getCookie('token') ? <Outlet /> : <Navigate to='/' replace />
+}
+
+function RequireKnowledgeManager() {
+  const isAuthenticated = useSelector((state) => state.auth.isAuthenticated)
+  const role = useSelector((state) => state.auth.user?.role)
+  if (isAuthenticated && !role) return <PageLoader onDone={() => {}} />
+  return ['admin', 'extension_worker', 'lgu_personnel'].includes(role)
+    ? <Outlet /> : <Navigate to='/dashboard' replace />
 }
 
 function App() {
@@ -168,12 +177,15 @@ function App() {
               <Route path='/admin/farmers' element={<FarmersAccounts />} />
               <Route path='/admin/extension-workers' element={<AdminExtensionWorkers />} />
               <Route path='/admin/knowledge-repository' element={<AdminKnowledgeRepository />} />
-              <Route path='/admin/knowledge-base' element={<KnowledgeBase />} />
-              <Route path='/extension-worker/knowledge-base' element={<KnowledgeBase />} />
+              <Route element={<RequireKnowledgeManager />}>
+                <Route path='/admin/knowledge-base' element={<KnowledgeBase />} />
+                <Route path='/extension-worker/knowledge-base' element={<KnowledgeBase />} />
+              </Route>
               <Route path='/admin/reports' element={<Reports />} />
 
               {/* Farmer */}
-              <Route path='/farmer/knowledge-repository' element={<FarmerKnowledgeRepository />} />
+              <Route path='/farmer/knowledge-repository' element={<FarmerAgriXa />} />
+              <Route path='/farmer/tickets' element={<FarmerKnowledgeRepository ticketOnly />} />
               <Route path='/farmer/extension-workers' element={<FarmerExtensionWorkers />} />
 
               {/* Extension Worker */}

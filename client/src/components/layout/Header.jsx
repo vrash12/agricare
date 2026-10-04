@@ -17,7 +17,7 @@ const Header = ({ notificationCount = 0 }) => {
 
     return (
         <>
-            <div className='flex items-center justify-between px-4 py-3 shadow-sm md:px-8' style={{ backgroundColor: theme.primaryColor }}>
+            <div className='flex items-center justify-between px-4 py-3.5 shadow-sm md:px-8' style={{ backgroundColor: theme.primaryColor }}>
                 {/* Logo */}
                 <div className='flex items-center gap-2 cursor-pointer' onClick={() => navigate('/dashboard')}>
                     {theme.minecraftLogo
@@ -32,7 +32,7 @@ const Header = ({ notificationCount = 0 }) => {
                 {/* Right side */}
                 <div className='flex items-center gap-3'>
                     {/* Notifications */}
-                    <div className='relative cursor-pointer rounded-lg p-2 transition hover:bg-white/10' onClick={() => navigate('/notifications')}>
+                    <div className='relative cursor-pointer rounded-xl p-2 transition hover:bg-white/10' onClick={() => navigate('/notifications')} aria-label='Notifications'>
                         <IoNotificationsOutline size={21} color='#fff' />
                         {notificationCount > 0 && (
                             <span className='absolute -top-1 -right-1 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full'
@@ -43,7 +43,7 @@ const Header = ({ notificationCount = 0 }) => {
                     </div>
 
                     {/* Settings */}
-                    <div className='flex cursor-pointer items-center gap-2 rounded-lg p-1.5 pr-2 transition hover:bg-white/10' onClick={() => setProfileOpen(true)}>
+                    <div className='flex cursor-pointer items-center gap-2 rounded-xl p-1.5 pr-2 transition hover:bg-white/10' onClick={() => setProfileOpen(true)} aria-label='Open account settings'>
                         <span className='flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white'>{initials}</span>
                         <span className='hidden max-w-28 truncate text-xs font-medium text-white/85 sm:block'>{user?.firstName || 'Account'}</span>
                         <MdSettings size={18} color='#fff' />

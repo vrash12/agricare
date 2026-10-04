@@ -17,14 +17,16 @@ const Topbar = ({ children, notificationCount = 0, navLinks = [] }) => {
             <Header notificationCount={notificationCount} />
 
             {/* Nav Links — desktop only */}
-            <nav className='hidden items-center justify-end gap-1 px-6 py-2 shadow-sm md:flex' style={{ backgroundColor: theme.primaryColor, borderTop: `1px solid rgba(255,255,255,0.1)` }}>
-                {navLinks.map(({ label, path, icon: Icon }) => {
-                    const isActive = location.pathname === path
+            <nav className='hidden items-center justify-end gap-1.5 px-6 py-2.5 shadow-sm md:flex' style={{ backgroundColor: theme.primaryColor, borderTop: `1px solid rgba(255,255,255,0.1)` }} aria-label='Primary navigation'>
+                {navLinks.map(({ label, path, icon: Icon, tone }) => {
+                    const isActive = location.pathname === path || location.pathname.startsWith(`${path}/`)
                     return (
                         <button key={path} onClick={() => navigate(path)}
-                            className='flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all hover:bg-white/10'
+                            aria-current={isActive ? 'page' : undefined}
+                            className='app-nav-link flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold hover:bg-white/10'
                             style={{
-                                backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
+                                backgroundColor: isActive && tone === 'ticketing' ? '#2563eb' : isActive ? 'rgba(255,255,255,0.18)' : 'transparent',
+                                borderColor: isActive ? (tone === 'ticketing' ? '#60a5fa' : 'rgba(255,255,255,0.22)') : 'transparent',
                                 color: '#fff',
                                 opacity: isActive ? 1 : 0.75,
                             }}>
@@ -36,7 +38,7 @@ const Topbar = ({ children, notificationCount = 0, navLinks = [] }) => {
             </nav>
 
             {/* Page Content */}
-            <main className='flex-1 p-4 md:p-6 pb-24 md:pb-6'>
+            <main className='flex-1 bg-white/30 p-4 pb-24 md:p-8 md:pb-8'>
                 <div key={location.key} className='page-transition'>
                     {children}
                 </div>
@@ -48,13 +50,13 @@ const Topbar = ({ children, notificationCount = 0, navLinks = [] }) => {
             {/* Mobile Bottom Nav */}
             <div className='fixed bottom-0 left-0 right-0 z-[60] flex items-center gap-1 overflow-x-auto px-2 py-2 shadow-lg md:hidden'
                 style={{ backgroundColor: theme.primaryColor, borderTop: '1px solid rgba(255,255,255,0.15)' }}>
-                {allLinks.map(({ label, path, icon: Icon, badge }) => {
+                {allLinks.map(({ label, path, icon: Icon, badge, tone }) => {
                     const isActive = location.pathname === path
                     const shortLabel = ({ Notifications: 'Notifs', 'Extension Workers': 'Workers', 'Knowledge Base': 'Knowledge', 'Ticket Repository': 'Tickets' })[label] || label
                     return (
                         <button key={path} onClick={() => navigate(path)} aria-label={label} aria-current={isActive ? 'page' : undefined}
-                            className='flex min-w-[62px] flex-1 flex-col items-center gap-0.5 rounded-lg px-2 py-1 transition-all'
-                            style={{ color: '#fff', opacity: isActive ? 1 : 0.6 }}>
+                            className='app-nav-link flex min-w-[62px] flex-1 flex-col items-center gap-0.5 rounded-xl px-2 py-1 transition-all'
+                            style={{ color: '#fff', opacity: isActive ? 1 : 0.6, backgroundColor: isActive && tone === 'ticketing' ? '#2563eb' : isActive ? 'rgba(255,255,255,0.16)' : 'transparent' }}>
                             <div className='relative'>
                                 <Icon size={20} />
                                 {badge > 0 && (

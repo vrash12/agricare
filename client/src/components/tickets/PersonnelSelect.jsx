@@ -29,7 +29,7 @@ export default function PersonnelSelect({ workers, positions = [], value, onChan
                 : !loading && available.length === 0 && <p role='status' className='text-xs text-amber-800'>No active, approved LGU personnel are available. Please try again later.</p>}
             {selected && <div className='rounded-lg px-3 py-2 text-sm' style={{ backgroundColor: `${theme.primaryColor}12` }}>
                 <span className='text-xs opacity-70'>Selected personnel</span>
-                <p className='font-semibold'>{selected.firstName} {selected.lastName}</p>
+                <p className='font-semibold'>{selected.firstName} {selected.lastName}{positions.find(item => item.id === selected.positionId)?.name && <span className='font-normal opacity-70'> – {positions.find(item => item.id === selected.positionId)?.name}</span>}</p>
             </div>}
         </div>
     )

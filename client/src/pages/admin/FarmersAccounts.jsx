@@ -79,9 +79,9 @@ const FarmersAccounts = () => {
 
     return (
         <AdminLayout>
-            <div className='flex flex-col gap-4'>
-                <div className='flex items-center justify-between'>
-                    <h1 className='text-2xl font-bold' style={{ color: theme.textColor }}>Farmers Accounts</h1>
+            <div className='app-page flex flex-col gap-5'>
+                <div className='flex flex-wrap items-end justify-between gap-3'>
+                    <header><p className='app-kicker' style={{ color: theme.primaryColor }}>Admin directory</p><h1 className='app-page-title' style={{ color: theme.textColor }}>Farmer Accounts</h1><p className='app-page-subtitle'>Review registered farmers, their barangay, and account status.</p></header>
                     <Button size='sm' variant='outline' onClick={() => exportCSV(
                         ['Name', 'Username', 'Barangay', 'Mobile', 'Status', 'Registered'],
                         filtered.map(f => [
@@ -100,17 +100,17 @@ const FarmersAccounts = () => {
                 <div className='relative'>
                     <MdSearch size={18} className='absolute left-3 top-1/2 -translate-y-1/2 opacity-50' color={theme.textColor} />
                     <input value={search} onChange={e => handleSearch(e.target.value)} placeholder='Search by name, username, barangay...'
-                        className='w-full pl-9 pr-4 py-2.5 text-sm outline-none border rounded-lg'
+                        className='app-control w-full pl-9 pr-4 py-2.5 text-sm outline-none'
                         style={{ borderColor: theme.secondaryColor, backgroundColor: '#fff', color: theme.textColor }} />
                 </div>
 
                 {/* Table */}
-                <div className='rounded-xl shadow-sm overflow-x-auto' style={{ border: `1px solid ${theme.secondaryColor}` }}>
+                <div className='app-card overflow-x-auto' style={{ borderColor: theme.secondaryColor }}>
                     <table className='w-full text-sm min-w-[600px]'>
                         <thead style={{ backgroundColor: theme.primaryColor }}>
                             <tr>
                                 {['Name', 'Username', 'Barangay', 'Mobile', 'Status', 'Registered', 'Actions'].map(h => (
-                                    <th key={h} className='px-4 py-3 text-left text-white font-medium'>{h}</th>
+                                <th key={h} className='px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-white'>{h}</th>
                                 ))}
                             </tr>
                         </thead>

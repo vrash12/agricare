@@ -257,8 +257,8 @@ const Reports = () => {
 
     return (
         <AdminLayout>
-            <div className='flex flex-col gap-6'>
-                <h1 className='text-2xl font-bold' style={{ color: theme.textColor }}>Reports & Analytics</h1>
+            <div className='app-page flex flex-col gap-6'>
+                <header><p className='app-kicker' style={{ color: theme.primaryColor }}>Admin overview</p><h1 className='app-page-title' style={{ color: theme.textColor }}>Reports &amp; Analytics</h1><p className='app-page-subtitle'>Monitor ticket activity, personnel availability, and AgriXa engagement at a glance.</p></header>
 
                 {loading ? (
                     <div className='flex justify-center py-16'>
@@ -269,7 +269,7 @@ const Reports = () => {
 
                         {/* Monthly Tickets Chart */}
                         <div onClick={openTicketsByPositionDialog}
-                            className='p-6 rounded-xl shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                            className='app-card cursor-pointer p-5 transition-shadow hover:shadow-lg'
                             style={{ backgroundColor: '#fff', border: `1px solid ${theme.secondaryColor}`, height: '280px' }}>
                             <Bar
                                 data={{ labels: stats?.tickets.labels ?? [], datasets: [{ label: 'Tickets', data: stats?.tickets.data ?? [], backgroundColor: theme.primaryColor + 'cc', borderRadius: 8 }] }}
@@ -279,7 +279,7 @@ const Reports = () => {
 
                         {/* Monthly New Farmers Chart */}
                         <div onClick={() => openMonthlyDialog('Monthly New Farmers', stats?.farmers.labels, stats?.farmers.data, 'Farmers', 'farmers', stats?.availableFarmerYears ?? [])}
-                            className='p-6 rounded-xl shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                            className='app-card cursor-pointer p-5 transition-shadow hover:shadow-lg'
                             style={{ backgroundColor: '#fff', border: `1px solid ${theme.secondaryColor}`, height: '280px' }}>
                             <Bar
                                 data={{ labels: stats?.farmers.labels ?? [], datasets: [{ label: 'Farmers', data: stats?.farmers.data ?? [], backgroundColor: '#3b82f6cc', borderRadius: 8 }] }}
@@ -289,7 +289,7 @@ const Reports = () => {
 
                         {/* Extension Worker Status Card */}
                         <div onClick={openWorkerDialog}
-                            className='p-6 rounded-xl shadow-sm cursor-pointer hover:shadow-md transition-shadow flex flex-col gap-4'
+                            className='app-card flex cursor-pointer flex-col gap-4 p-5 transition-shadow hover:shadow-lg'
                             style={{ backgroundColor: '#fff', border: `1px solid ${theme.secondaryColor}` }}>
                             <p className='text-sm font-medium opacity-60' style={{ color: theme.textColor }}>Extension Worker Status</p>
                             <div className='grid grid-cols-2 gap-3'>
@@ -310,7 +310,7 @@ const Reports = () => {
 
                         {/* Monthly AgriXa Visits Chart */}
                         <div onClick={openVisitsDialog}
-                            className='p-6 rounded-xl shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                            className='app-card cursor-pointer p-5 transition-shadow hover:shadow-lg'
                             style={{ backgroundColor: '#fff', border: `1px solid ${theme.secondaryColor}`, height: '280px' }}>
                             <Bar
                                 data={{ labels: stats?.visits.labels ?? [], datasets: [{ label: 'Visits', data: stats?.visits.data ?? [], backgroundColor: '#f59e0bcc', borderRadius: 8 }] }}

@@ -8,6 +8,9 @@ import Button from '../../components/ui/Button'
 import TicketAssignment from '../../components/tickets/TicketAssignment'
 import api from '../../services/api'
 import TicketCapacity from '../../components/tickets/TicketCapacity'
+import AssignedPersonnel from '../../components/tickets/AssignedPersonnel'
+import TicketDetailsToggle from '../../components/tickets/TicketDetailsToggle'
+import ConversationHeader from '../../components/tickets/ConversationHeader'
 
 const STATUS_TABS = ['all', 'pending', 'ongoing', 'waiting_for_feedback', 'resolved']
 const STATUS_LABEL = {
@@ -31,6 +34,11 @@ const formatDate = (iso) => {
     return new Date(iso).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
+const formatDateTime = (iso) => {
+    if (!iso) return ''
+    return new Date(iso).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+}
+
 const getMondayOfWeek = (year, month, day) => {
     const d = new Date(year, month, day)
     const diff = d.getDay() === 0 ? -6 : 1 - d.getDay()
@@ -47,6 +55,7 @@ const AdminKnowledgeRepository = () => {
     const [search, setSearch] = useState('')
     const [activeTab, setActiveTab] = useState('all')
     const [selected, setSelected] = useState(null)
+    const [detailsOpen, setDetailsOpen] = useState(false)
     const [detailLoading, setDetailLoading] = useState(false)
     const [updatingStatus, setUpdatingStatus] = useState(false)
     const [deleting, setDeleting] = useState(false)
@@ -122,6 +131,7 @@ const AdminKnowledgeRepository = () => {
     })
 
     const handleView = async (ticket) => {
+        setDetailsOpen(false)
         setSelected({ ...ticket, messages: [] })
         setDetailLoading(true)
         try {
@@ -166,9 +176,10 @@ const AdminKnowledgeRepository = () => {
         if (!selected) return
         setUpdatingStatus(true)
         try {
-            await api.patch(`/tickets/${selected.id}/status/`, { status: newStatus })
-            setSelected(prev => ({ ...prev, status: newStatus }))
-            setTickets(prev => prev.map(t => t.id === selected.id ? { ...t, status: newStatus } : t))
+            const response = await api.patch(`/tickets/${selected.id}/status/`, { status: newStatus })
+            const updated = response.data?.ticket || { status: newStatus }
+            setSelected(prev => ({ ...prev, ...updated }))
+            setTickets(prev => prev.map(t => t.id === selected.id ? { ...t, ...updated } : t))
         } finally {
             setUpdatingStatus(false)
         }
@@ -200,11 +211,11 @@ const AdminKnowledgeRepository = () => {
 
     return (
         <AdminLayout>
-            <div className='mx-auto flex w-full max-w-6xl flex-col gap-5'>
-                <div><p className='text-xs font-semibold uppercase tracking-[0.16em]' style={{ color: theme.primaryColor }}>Support operations</p><h1 className='mt-1 text-2xl font-bold' style={{ color: theme.textColor }}>Ticket Repository</h1><p className='mt-1 text-sm opacity-60' style={{ color: theme.textColor }}>Review, filter, and manage farmer conversations.</p></div>
+            <div className='app-page flex flex-col gap-5'>
+                <header><p className='app-kicker' style={{ color: theme.primaryColor }}>Admin support operations</p><h1 className='app-page-title' style={{ color: theme.textColor }}>Ticket Repository</h1><p className='app-page-subtitle'>Review, filter, and manage farmer conversations with a clear weekly view.</p></header>
 
                 {/* Filters */}
-                <div className='flex flex-wrap items-center gap-2 rounded-xl p-3' style={{ backgroundColor: `${theme.primaryColor}08` }}>
+                <div className='app-card flex flex-wrap items-center gap-3 p-4' style={{ backgroundColor: `${theme.primaryColor}08` }}>
                     {/* Week nav */}
                     <div className='flex items-center gap-1 text-sm' style={{ color: theme.textColor }}>
                         <button onClick={() => handleWeekNav(-1)}
@@ -235,7 +246,7 @@ const AdminKnowledgeRepository = () => {
                 <div className='relative'>
                     <MdSearch size={18} className='absolute left-3 top-1/2 -translate-y-1/2 opacity-50' color={theme.textColor} />
                     <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search by concern or worker...'
-                        className='w-full pl-9 pr-4 py-2.5 text-sm outline-none border rounded-lg'
+                        className='app-control w-full pl-9 pr-4 py-2.5 text-sm outline-none'
                         style={{ borderColor: theme.secondaryColor, backgroundColor: '#fff', color: theme.textColor }} />
                 </div>
 
@@ -267,7 +278,7 @@ const AdminKnowledgeRepository = () => {
                     <div className='flex flex-col gap-3'>
                         {filtered.map(ticket => (
                             <div key={ticket.id} onClick={() => handleView(ticket)}
-                                className='flex items-start gap-2 p-4 rounded-xl cursor-pointer transition-all hover:shadow-md'
+                                className='app-card flex items-start gap-3 p-5 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg'
                                 style={{ backgroundColor: '#fff', border: `1px solid ${theme.secondaryColor}` }}>
                                 <div className='flex flex-col gap-2 flex-1 min-w-0'>
                                     <div className='flex items-start justify-between gap-2'>
@@ -280,8 +291,9 @@ const AdminKnowledgeRepository = () => {
                                     <TicketCapacity ticket={ticket} compact />
                                 {ticket.categoryName && <p className='text-xs font-semibold' style={{ color: theme.primaryColor }}>{ticket.categoryName}</p>}
                                 {ticket.title && <p className='text-xs opacity-60 line-clamp-1' style={{ color: theme.textColor }}>{ticket.concern}</p>}
-                                    <div className='flex items-center justify-between'>
-                                        <p className='text-xs font-medium' style={{ color: theme.primaryColor }}>Assigned to: {ticket.extensionWorkerName || 'Unassigned'}</p>
+                                    <div className='flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-3' style={{ borderColor: `${theme.secondaryColor}35` }}>
+                                        <p className='text-xs font-medium' style={{ color: theme.primaryColor }}>Assigned to: <AssignedPersonnel ticket={ticket} /></p>
+                                        {ticket.acceptedAt && <p className='text-xs opacity-60' style={{ color: theme.textColor }}>Accepted: {formatDateTime(ticket.acceptedAt)}</p>}
                                         <p className='text-xs opacity-40' style={{ color: theme.textColor }}>{formatDate(ticket.date)}</p>
                                     </div>
                                 </div>
@@ -296,39 +308,31 @@ const AdminKnowledgeRepository = () => {
             </div>
 
             {/* Detail Dialog */}
-            <Dialog isOpen={!!selected} onClose={() => setSelected(null)} title='Ticket Details' mobileMaxH='max-h-[95vh]'>
+            <Dialog isOpen={!!selected} onClose={() => setSelected(null)} title='Ticket Conversation' mobileMaxH='max-h-[95vh]'>
                 {selected && (
-                    <div className='flex flex-col gap-4 w-full sm:w-[min(800px,90vw)]'>
+                    <div className='flex w-full min-w-0 flex-col gap-4 sm:w-[min(800px,82vw)]'>
                         {/* Header */}
-                        <div className='flex items-start justify-between gap-3'>
-                            <div className='flex flex-col gap-0.5'>
-                                <p className='text-xs opacity-50' style={{ color: theme.textColor }}>Assigned to</p>
-                                <p className='text-sm font-medium' style={{ color: theme.textColor }}>{selected.extensionWorkerName || 'Unassigned'}</p>
+                        <ConversationHeader ticket={selected} theme={theme} statusLabel={STATUS_LABEL[selected.status] ?? selected.status} statusStyle={statusStyle[selected.status]} />
+
+                        <TicketDetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen(value => !value)} theme={theme}>
+                            {!detailLoading && <TicketAssignment key={selected.id} ticket={selected} onAssigned={updated => {
+                                setSelected(current => current?.id === updated.id ? { ...current, ...updated } : current)
+                                setTickets(current => current.map(ticket => ticket.id === updated.id ? { ...ticket, ...updated } : ticket))
+                            }} />}
+
+                            <TicketCapacity ticket={selected} />
+                            {selected.categoryName && <p className='text-sm' style={{ color: theme.textColor }}><strong>Category:</strong> {selected.categoryName}</p>}
+                            {/* Title + Concern */}
+                            <div className='flex flex-col gap-1'>
+                                {selected.title && <p className='text-base font-semibold' style={{ color: theme.textColor }}>{selected.title}</p>}
+                                <p className='text-xs opacity-50' style={{ color: theme.textColor }}>Concern</p>
+                                <p className='text-sm p-3 rounded-lg' style={{ backgroundColor: theme.primaryColor + '10', color: theme.textColor }}>
+                                    {selected.concern}
+                                </p>
                             </div>
-                            <span className='shrink-0 px-2 py-0.5 rounded-full text-xs font-medium'
-                                style={{ backgroundColor: statusStyle[selected.status]?.bg, color: statusStyle[selected.status]?.color }}>
-                                {STATUS_LABEL[selected.status] ?? selected.status}
-                            </span>
-                        </div>
 
-                        {!detailLoading && <TicketAssignment key={selected.id} ticket={selected} onAssigned={updated => {
-                            setSelected(current => current?.id === updated.id ? { ...current, ...updated } : current)
-                            setTickets(current => current.map(ticket => ticket.id === updated.id ? { ...ticket, ...updated } : ticket))
-                        }} />}
-
-                        <TicketCapacity ticket={selected} />
-                        {selected.categoryName && <p className='text-sm' style={{ color: theme.textColor }}><strong>Category:</strong> {selected.categoryName}</p>}
-                        {/* Title + Concern */}
-                        <div className='flex flex-col gap-1'>
-                            {selected.title && <p className='text-base font-semibold' style={{ color: theme.textColor }}>{selected.title}</p>}
-                            <p className='text-xs opacity-50' style={{ color: theme.textColor }}>Concern</p>
-                            <p className='text-sm p-3 rounded-lg' style={{ backgroundColor: theme.primaryColor + '10', color: theme.textColor }}>
-                                {selected.concern}
-                            </p>
-                        </div>
-
-                        {/* Pinned Message */}
-                        {(() => {
+                            {/* Pinned Message */}
+                            {(() => {
                             const pinned = selected.messages?.find(m => m.isPinned)
                             return pinned ? (
                                 <div className='flex flex-col gap-1 cursor-pointer'
@@ -357,7 +361,8 @@ const AdminKnowledgeRepository = () => {
                                     </div>
                                 </div>
                             ) : null
-                        })()}
+                            })()}
+                        </TicketDetailsToggle>
 
                         <hr style={{ borderColor: theme.secondaryColor }} />
 

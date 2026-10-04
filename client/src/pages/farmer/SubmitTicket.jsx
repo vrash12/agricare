@@ -6,6 +6,7 @@ import FarmerLayout from '../../components/layout/FarmerLayout'
 import Button from '../../components/ui/Button'
 import api from '../../services/api'
 import TicketCapacity from '../../components/tickets/TicketCapacity'
+import AssignedPersonnel from '../../components/tickets/AssignedPersonnel'
 
 export default function SubmitTicket() {
     const theme = useSelector(state => state.theme)
@@ -70,7 +71,7 @@ export default function SubmitTicket() {
                 ticketId: joinExisting ? review?.existing?.id : null,
                 fileData: attachment?.data || '', fileName: attachment?.name || '', fileType: attachment?.type || '',
             })
-            navigate('/farmer/knowledge-repository', { replace: true, state: { ticketId: data.ticketId } })
+            navigate('/farmer/tickets', { replace: true, state: { ticketId: data.ticketId } })
         } catch (error) {
             setError(error.response?.data?.error || error.response?.data?.detail || 'Your ticket could not be submitted. Please try again.')
         } finally { setBusy(false) }
@@ -78,17 +79,17 @@ export default function SubmitTicket() {
 
     const inputStyle = { borderColor: theme.secondaryColor, color: theme.textColor }
     return <FarmerLayout>
-        <section className='mx-auto w-full max-w-3xl rounded-2xl border bg-white p-5 shadow-sm sm:p-7' style={{ borderColor: `${theme.secondaryColor}65` }}>
+        <section className='app-card mx-auto w-full max-w-3xl p-5 sm:p-7' style={{ borderColor: `${theme.secondaryColor}65` }}>
             <div className='mb-6 flex items-start gap-3' style={{ color: theme.textColor }}>
-                <MdConfirmationNumber size={30} color={theme.primaryColor} className='shrink-0' />
-                <div><h1 className='text-2xl font-bold'>Submit Ticket</h1><p className='mt-1 text-sm opacity-75'>Choose your concern category and describe the problem. AgriCare will automatically assign the appropriate LGU personnel.</p></div>
+                <span className='flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700'><MdConfirmationNumber size={26} /></span>
+                <div><p className='app-kicker text-blue-700'>Ticketing System</p><h1 className='app-page-title'>Submit Ticket</h1><p className='app-page-subtitle'>Choose your concern category and describe the problem. AgriCare will automatically assign the appropriate LGU personnel.</p></div>
             </div>
             {categoryError && <div role='alert' className='mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900'>{categoryError} <button onClick={() => { setLoading(true); loadCategories() }} className='font-semibold underline'>Try again</button></div>}
             {error && <p role='alert' className='mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800'>{error}</p>}
             {review ? <div className='space-y-4' style={{ color: theme.textColor }}>
                 <h2 className='text-lg font-semibold'>{review.existing ? (ownsExisting ? 'You have a similar ticket' : 'Another farmer has a similar concern') : 'Review your concern'}</h2>
                 <div className='rounded-xl bg-slate-50 p-4'><p className='text-xs font-semibold uppercase tracking-wide'>{category?.name}</p><p className='mt-2 font-semibold'>{title}</p><p className='mt-1 whitespace-pre-wrap text-sm'>{concern}</p>{attachment && <p className='mt-2 text-xs'>Attachment: {attachment.name}</p>}</div>
-                {review.existing ? <div className='rounded-xl border p-4' style={inputStyle}><p className='font-semibold'>{review.existing.title}</p><p className='mt-1 text-sm'>Assigned to: {review.existing.extensionWorkerName || 'Unassigned'}</p><div className='mt-3'><TicketCapacity ticket={review.existing} /></div><p className='mt-2 text-sm'>{ownsExisting ? 'Continue this conversation, or create a separate ticket for a different issue.' : 'Join this conversation to see the LGU answer and ask your question there, or create a separate ticket for a different issue.'}</p></div>
+                {review.existing ? <div className='rounded-xl border p-4' style={inputStyle}><p className='font-semibold'>{review.existing.title}</p><p className='mt-1 text-sm'>Assigned to: <AssignedPersonnel ticket={review.existing} /></p><div className='mt-3'><TicketCapacity ticket={review.existing} /></div><p className='mt-2 text-sm'>{ownsExisting ? 'Continue this conversation, or create a separate ticket for a different issue.' : 'Join this conversation to see the LGU answer and ask your question there, or create a separate ticket for a different issue.'}</p></div>
                     : <p className='text-sm'>Your ticket will be assigned automatically based on this category. You will see the assigned person’s name in your ticket.</p>}
                 <div className='flex flex-wrap justify-end gap-2'>
                     <Button variant='ghost' disabled={busy} onClick={() => { setReview(null); setError('') }}>Back</Button>

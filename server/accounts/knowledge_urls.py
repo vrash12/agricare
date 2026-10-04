@@ -1,7 +1,8 @@
 from django.urls import path
-from .knowledge_views import KnowledgeListView, KnowledgeDetailView
+from .knowledge_views import KnowledgeListView, KnowledgeDetailView, KnowledgeValidationView
 
 urlpatterns = [
     path('', KnowledgeListView.as_view(), name='knowledge-list'),
     path('<str:entry_id>/', KnowledgeDetailView.as_view(), name='knowledge-detail'),
+    path('<str:entry_id>/validate/', KnowledgeValidationView.as_view(), name='knowledge-validate'),
 ]

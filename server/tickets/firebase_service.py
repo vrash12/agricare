@@ -68,6 +68,8 @@ def create_ticket(data):
     doc_ref.set({
         'extensionWorkerId': data['extensionWorkerId'],
         'extensionWorkerName': data['extensionWorkerName'],
+        'extensionWorkerPosition': data.get('extensionWorkerPosition', ''),
+        'extensionWorkerRole': data.get('extensionWorkerRole', ''),
         'categoryId': data['categoryId'],
         'categoryName': data['categoryName'],
         'title': data['title'],
@@ -160,7 +162,32 @@ def delete_ticket(ticket_id):
 def update_ticket_status(ticket_id, new_status):
     db.collection(TICKETS_COLLECTION).document(ticket_id).update({'status': new_status})
 
-def update_ticket_assignment(ticket_id, worker_id, worker_name, assigned_by):
+
+def record_ticket_acceptance(ticket_id, worker_id):
+    """Record the first explicit acceptance time, preserving it on later updates."""
+    ticket_ref = db.collection(TICKETS_COLLECTION).document(ticket_id)
+
+    @firestore.transactional
+    def accept_transaction(transaction):
+        snapshot = ticket_ref.get(transaction=transaction)
+        if not snapshot.exists:
+            return None
+        current = snapshot.to_dict()
+        if current.get('acceptedAt'):
+            return {
+                'acceptedAt': current.get('acceptedAt'),
+                'acceptedBy': current.get('acceptedBy', worker_id),
+            }
+        accepted_at = datetime.now(timezone.utc).isoformat()
+        transaction.update(ticket_ref, {
+            'acceptedAt': accepted_at,
+            'acceptedBy': worker_id,
+        })
+        return {'acceptedAt': accepted_at, 'acceptedBy': worker_id}
+
+    return accept_transaction(db.transaction())
+
+def update_ticket_assignment(ticket_id, worker_id, worker_name, assigned_by, reset_acceptance=False):
     assignment = {
         'extensionWorkerId': worker_id,
         'extensionWorkerName': worker_name,
@@ -168,7 +195,13 @@ def update_ticket_assignment(ticket_id, worker_id, worker_name, assigned_by):
         'assignmentMethod': 'admin',
         'assignedAt': datetime.now(timezone.utc).isoformat(),
     }
-    db.collection(TICKETS_COLLECTION).document(ticket_id).update(assignment)
+    update_data = dict(assignment)
+    if reset_acceptance:
+        update_data.update({
+            'acceptedAt': firestore.DELETE_FIELD,
+            'acceptedBy': firestore.DELETE_FIELD,
+        })
+    db.collection(TICKETS_COLLECTION).document(ticket_id).update(update_data)
     return assignment
 
 def get_all_tickets():

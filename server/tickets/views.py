@@ -13,8 +13,61 @@ from .firebase_service import (
     get_all_tickets_filtered, get_available_ticket_years,
     get_tickets_by_worker, get_tickets_by_farmer, get_ticket_by_id, get_ticket_messages, get_message_by_id,
     get_knowledge_repository_visits, increment_knowledge_repository_visits,
-    update_ticket_status, update_ticket_assignment, add_message, pin_message, delete_ticket, delete_message
+    update_ticket_status, record_ticket_acceptance, update_ticket_assignment, add_message, pin_message, delete_ticket, delete_message
 )
+
+
+ROLE_LABELS = {
+    'extension_worker': 'Extension Worker',
+    'lgu_personnel': 'LGU Personnel',
+}
+
+
+def worker_assignment_fields(worker):
+    """Return display-safe personnel identity fields without trusting client input."""
+    if not isinstance(worker, dict):
+        return {}
+    fields = {}
+    name = f"{worker.get('firstName', '')} {worker.get('lastName', '')}".strip()
+    if name:
+        fields['extensionWorkerName'] = name
+    position = worker.get('positionName') or worker.get('position') or ''
+    if not position and worker.get('positionId'):
+        try:
+            from accounts.firebase_service import get_position_by_id
+            position_data = get_position_by_id(worker['positionId'])
+            position = position_data.get('name', '') if position_data else ''
+        except Exception:
+            # Ticket display should still work when a legacy position record is unavailable.
+            position = ''
+    if position:
+        fields['extensionWorkerPosition'] = str(position).strip()
+    role = ROLE_LABELS.get(worker.get('role'), worker.get('role', ''))
+    if role:
+        fields['extensionWorkerRole'] = role
+    return fields
+
+
+def enrich_ticket_assignment(ticket, worker=None):
+    """Add assigned personnel name, position, and role to legacy and new tickets."""
+    enriched = dict(ticket or {})
+    if not enriched.get('extensionWorkerId'):
+        return enriched
+    if worker is None and not enriched.get('extensionWorkerPosition') and not enriched.get('extensionWorkerRole'):
+        try:
+            from accounts.firebase_service import get_user_by_id
+            worker = get_user_by_id(enriched['extensionWorkerId'])
+        except Exception:
+            worker = None
+    fields = worker_assignment_fields(worker)
+    for key, value in fields.items():
+        if value and not enriched.get(key):
+            enriched[key] = value
+    return enriched
+
+
+def ticket_payload(ticket, worker=None):
+    return with_capacity(enrich_ticket_assignment(ticket, worker))
 
 def get_assignable_worker(worker_id):
     from accounts.firebase_service import get_user_by_id
@@ -66,7 +119,7 @@ class CheckTicketView(APIView):
         keywords = extract_keywords_combined(title, concern)
         match = find_matching_ticket(None, keywords, farmer_id=request.user.id, category_id=category['id'])
         if match:
-            return Response({'exists': True, 'ticket': with_capacity(match)})
+            return Response({'exists': True, 'ticket': ticket_payload(match)})
         return Response({'exists': False})
 
 class SubmitTicketView(APIView):
@@ -106,12 +159,15 @@ class SubmitTicketView(APIView):
         farmer_name = f"{farmer.get('firstName', '')} {farmer.get('lastName', '')}".strip()
         extension_worker_id = worker['id']
         extension_worker_name = f"{worker.get('firstName', '')} {worker.get('lastName', '')}".strip()
+        assignment_fields = worker_assignment_fields(worker)
         keywords = extract_keywords_combined(title, concern)
         ticket_id = create_ticket({
             'categoryId': category['id'],
             'categoryName': category['name'],
             'extensionWorkerId': extension_worker_id,
             'extensionWorkerName': extension_worker_name,
+            'extensionWorkerPosition': assignment_fields.get('extensionWorkerPosition', ''),
+            'extensionWorkerRole': assignment_fields.get('extensionWorkerRole', ''),
             'title': title.strip(),
             'concern': concern.strip(),
             'keywords': keywords,
@@ -127,7 +183,10 @@ class SubmitTicketView(APIView):
         create_notification(extension_worker_id, 'ticket_reply', f'{farmer_name} submitted a ticket to you.', request.user.id, ticket_id)
         notify_user_ws(extension_worker_id, {'type': 'ticket_reply', 'message': f'{farmer_name} submitted a ticket to you.'})
         return Response({'message': 'Ticket created and automatically assigned', 'ticketId': ticket_id,
-                         'extensionWorkerName': extension_worker_name, 'categoryName': category['name']}, status=status.HTTP_201_CREATED)
+                         'extensionWorkerName': extension_worker_name,
+                         'extensionWorkerPosition': assignment_fields.get('extensionWorkerPosition', ''),
+                         'extensionWorkerRole': assignment_fields.get('extensionWorkerRole', ''),
+                         'categoryName': category['name']}, status=status.HTTP_201_CREATED)
 
 class TicketListView(APIView):
     permission_classes = [IsAuthenticated, IsApplicationUser]
@@ -143,10 +202,10 @@ class TicketListView(APIView):
                     if owner_id and owner_id not in owners:
                         owners[owner_id] = get_user_by_id(owner_id) or {}
                     ticket['barangay'] = owners.get(owner_id, {}).get('barangay', '')
-            return Response([with_capacity(ticket) for ticket in tickets])
+            return Response([ticket_payload(ticket) for ticket in tickets])
         if request.user.role == 'farmer':
             if request.query_params.get('repository') != '1':
-                return Response([with_capacity(ticket) for ticket in get_tickets_by_farmer(request.user.id)])
+                return Response([ticket_payload(ticket) for ticket in get_tickets_by_farmer(request.user.id)])
             # The knowledge repository shows every farmer's conversation and LGU answer.
             tickets = [dict(ticket) for ticket in get_all_tickets()]
             for ticket in tickets:
@@ -156,7 +215,7 @@ class TicketListView(APIView):
                 preferred = next((m for m in reversed(answers) if m.get('isPinned')), None)
                 ticket['solution'] = (preferred or (answers[-1] if answers else {})).get('message', '')
                 ticket['answerSearchText'] = '\n'.join(m['message'] for m in answers)
-            return Response([with_capacity(ticket) for ticket in tickets])
+            return Response([ticket_payload(ticket) for ticket in tickets])
         from datetime import date
         now = datetime.now(timezone.utc)
         week_start_str = request.query_params.get('week_start')
@@ -172,7 +231,7 @@ class TicketListView(APIView):
         tickets, week_start, week_end, month, year = get_all_tickets_filtered(week_start_date)
         available_years = get_available_ticket_years()
         return Response({
-            'tickets': [with_capacity(ticket) for ticket in tickets],
+            'tickets': [ticket_payload(ticket) for ticket in tickets],
             'weekLabel': f'{week_start} – {week_end}',
             'month': month,
             'year': year,
@@ -186,7 +245,7 @@ class TicketDetailView(APIView):
         ticket = get_ticket_by_id(ticket_id)
         require_ticket_view(request.user, ticket)
         messages = get_ticket_messages(ticket_id)
-        return Response({**with_capacity(ticket), 'messages': messages})
+        return Response({**ticket_payload(ticket), 'messages': messages})
 
 class TicketJoinView(APIView):
     permission_classes = [IsAuthenticated, IsFarmer]
@@ -208,10 +267,13 @@ class TicketAssignmentView(APIView):
         worker_id = request.data.get('extensionWorkerId')
         worker = get_assignable_worker(worker_id)
         if ticket.get('extensionWorkerId') == worker_id:
-            return Response({'message': 'This person is already assigned.', 'ticket': with_capacity(ticket)})
+            return Response({'message': 'This person is already assigned.', 'ticket': ticket_payload(ticket, worker)})
 
         worker_name = f"{worker.get('firstName', '')} {worker.get('lastName', '')}".strip()
-        assignment = update_ticket_assignment(ticket_id, worker_id, worker_name, request.user.id)
+        assignment = update_ticket_assignment(
+            ticket_id, worker_id, worker_name, request.user.id,
+            reset_acceptance=bool(ticket.get('acceptedAt')),
+        )
 
         from accounts.firebase_service import broadcast_ticket_update, create_notification, notify_user_ws
         from asgiref.sync import async_to_sync
@@ -232,7 +294,11 @@ class TicketAssignmentView(APIView):
         async_to_sync(get_channel_layer().group_send)(f'ticket_{ticket_id}', {
             'type': 'ticket_message', 'data': {'type': 'assignment_updated'},
         })
-        return Response({'message': f'Concern assigned to {worker_name}.', 'ticket': with_capacity({**ticket, **assignment})})
+        updated_ticket = {**ticket, **assignment}
+        if ticket.get('acceptedAt'):
+            updated_ticket.pop('acceptedAt', None)
+            updated_ticket.pop('acceptedBy', None)
+        return Response({'message': f'Concern assigned to {worker_name}.', 'ticket': ticket_payload(updated_ticket, worker)})
 
 
 class KnowledgeRepositoryVisitsView(APIView):
@@ -272,6 +338,7 @@ class TicketStatusView(APIView):
         participants = ticket.get('participants', [])
         original_farmer_id = ticket_owner(ticket)
         worker_id = ticket.get('extensionWorkerId')
+        acceptance = None
 
         if new_status == 'waiting_for_feedback':
             if request.user.role not in WORKER_ROLES:
@@ -309,6 +376,8 @@ class TicketStatusView(APIView):
 
         elif new_status == 'ongoing':
             update_ticket_status(ticket_id, 'ongoing')
+            if request.user.role in WORKER_ROLES and ticket.get('status') != 'ongoing':
+                acceptance = record_ticket_acceptance(ticket_id, request.user.id)
             for participant_id in participants:
                 create_notification(participant_id, 'ticket_reply', 'Your ticket is now being handled.', request.user.id, ticket_id)
                 notify_user_ws(participant_id, {'type': 'ticket_reply', 'message': 'Your ticket is now being handled.'})
@@ -321,7 +390,9 @@ class TicketStatusView(APIView):
             'type': 'ticket_message',
             'data': {'type': 'new_message'},
         })
-        return Response({'message': 'Status updated'})
+        result_status = 'ongoing' if new_status == 'cancel_resolution' else new_status
+        response_ticket = {**ticket, 'status': result_status, **(acceptance or {})}
+        return Response({'message': 'Status updated', 'ticket': ticket_payload(response_ticket)})
 
 class TicketMessageView(APIView):
     permission_classes = [IsAuthenticated, IsApplicationUser]
@@ -351,8 +422,10 @@ class TicketMessageView(APIView):
             'fileName': file_name,
             'fileType': file_type,
         })
+        acceptance = None
         if request.user.role in WORKER_ROLES and ticket.get('status') == 'pending':
             update_ticket_status(ticket_id, 'ongoing')
+            acceptance = record_ticket_acceptance(ticket_id, request.user.id)
         if request.user.role == 'farmer' and ticket.get('status') == 'resolved':
             update_ticket_status(ticket_id, 'pending')
         channel_layer = get_channel_layer()
@@ -373,7 +446,9 @@ class TicketMessageView(APIView):
                 notif = {'type': 'ticket_reply', 'message': notif_message}
                 create_notification(worker_id, 'ticket_reply', notif_message, request.user.id, ticket_id)
                 notify_user_ws(worker_id, notif)
-        return Response({'message': 'Message sent'}, status=status.HTTP_201_CREATED)
+        response_ticket = {**ticket, 'status': 'ongoing' if acceptance else ticket.get('status'), **(acceptance or {})}
+        assignment_worker = user_data if request.user.role in WORKER_ROLES else None
+        return Response({'message': 'Message sent', 'ticket': ticket_payload(response_ticket, assignment_worker)}, status=status.HTTP_201_CREATED)
 
 class TicketMessageDeleteView(APIView):
     permission_classes = [IsAuthenticated, IsApplicationUser]

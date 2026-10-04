@@ -14,6 +14,7 @@ body {
     min-width: 320px;
     background: #fff9e9;
     -webkit-font-smoothing: antialiased;
+    color: #253126;
 }
 
 button, input, textarea, select { font: inherit; }
@@ -23,6 +24,59 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 
 ::selection { background: rgba(71, 131, 71, 0.22); }
+
+/* Shared visual language used by all three account experiences. */
+.app-card {
+    border: 1px solid rgba(71, 131, 71, 0.16);
+    border-radius: 1rem;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(38, 71, 37, 0.07);
+}
+
+.app-page {
+    width: 100%;
+    max-width: 82rem;
+    margin-inline: auto;
+}
+
+.app-kicker {
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    line-height: 1.25;
+    text-transform: uppercase;
+}
+
+.app-page-title {
+    margin-top: 0.35rem;
+    font-size: clamp(1.45rem, 2vw, 2rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+}
+
+.app-page-subtitle {
+    max-width: 48rem;
+    margin-top: 0.55rem;
+    color: #647267;
+    font-size: 0.92rem;
+    line-height: 1.6;
+}
+
+.app-nav-link {
+    min-height: 2.65rem;
+    border: 1px solid transparent;
+    transition: background-color 180ms ease, border-color 180ms ease, opacity 180ms ease, transform 180ms ease;
+}
+
+.app-nav-link:hover { transform: translateY(-1px); }
+
+.app-control {
+    min-height: 2.75rem;
+    border: 1px solid rgba(71, 131, 71, 0.25);
+    border-radius: 0.75rem;
+    background: #fff;
+}
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

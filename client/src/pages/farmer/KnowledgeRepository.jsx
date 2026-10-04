@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSelector } from 'react-redux'
 import { useLocation } from 'react-router-dom'
-import { MdSearch, MdMenuBook, MdPushPin, MdSend, MdAttachFile, MdClose, MdInsertDriveFile } from 'react-icons/md'
+import { MdSearch, MdMenuBook, MdConfirmationNumber, MdPushPin, MdSend, MdAttachFile, MdClose, MdInsertDriveFile } from 'react-icons/md'
 import { AiOutlineLoading3Quarters } from 'react-icons/ai'
 import FarmerLayout from '../../components/layout/FarmerLayout'
 import Dialog from '../../components/ui/Dialog'
@@ -9,6 +9,9 @@ import Button from '../../components/ui/Button'
 import api from '../../services/api'
 import TicketCapacity from '../../components/tickets/TicketCapacity'
 import KnowledgeSearch from '../../components/knowledge/KnowledgeSearch'
+import AssignedPersonnel from '../../components/tickets/AssignedPersonnel'
+import TicketDetailsToggle from '../../components/tickets/TicketDetailsToggle'
+import ConversationHeader from '../../components/tickets/ConversationHeader'
 
 const STATUS_TABS = ['all', 'pending', 'ongoing', 'waiting_for_feedback', 'resolved']
 const STATUS_LABEL = {
@@ -32,7 +35,12 @@ const formatDate = (iso) => {
     return d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-const FarmerKnowledgeRepository = () => {
+const formatDateTime = (iso) => {
+    if (!iso) return ''
+    return new Date(iso).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
     const theme = useSelector((state) => state.theme)
     const { user } = useSelector((state) => state.auth)
     const location = useLocation()
@@ -42,6 +50,7 @@ const FarmerKnowledgeRepository = () => {
     const [topTab, setTopTab] = useState('all')
     const [activeTab, setActiveTab] = useState('all')
     const [selected, setSelected] = useState(null)
+    const [detailsOpen, setDetailsOpen] = useState(false)
     const [detailLoading, setDetailLoading] = useState(false)
     const [visits, setVisits] = useState(0)
     const [reply, setReply] = useState('')
@@ -111,6 +120,7 @@ const FarmerKnowledgeRepository = () => {
     })
 
     async function handleView(ticket) {
+        setDetailsOpen(false)
         setSelected({ ...ticket, messages: [] })
         setReply('')
         setAttachedFile(null)
@@ -215,26 +225,26 @@ const FarmerKnowledgeRepository = () => {
 
     return (
         <FarmerLayout>
-            <div className='mx-auto flex w-full max-w-6xl flex-col gap-6'>
-                <KnowledgeSearch />
-                <div className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
-                    <div><p className='text-xs font-semibold uppercase tracking-[0.16em]' style={{ color: theme.primaryColor }}>Your support space</p><h1 className='mt-1 text-2xl font-bold' style={{ color: theme.textColor }}>Conversations & tickets</h1><p className='mt-1 text-sm opacity-60' style={{ color: theme.textColor }}>Browse past solutions from all farmers, follow your concerns, and continue conversations with LGU personnel.</p></div>
-                    <span className='flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium' style={{ backgroundColor: `${theme.primaryColor}12`, color: theme.primaryColor }}><MdMenuBook size={14} /> {visits} knowledge visit{visits !== 1 ? 's' : ''}</span>
+            <div className='app-page flex flex-col gap-6'>
+                {!ticketOnly && <KnowledgeSearch />}
+                <div className='flex flex-col gap-4 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-5 md:p-6 sm:flex-row sm:items-end sm:justify-between'>
+                    <div><p className='app-kicker flex items-center gap-2 text-blue-700'><MdConfirmationNumber size={15} /> Farmer support</p><h1 className='app-page-title' style={{ color: theme.textColor }}>Ticketing System</h1><p className='app-page-subtitle'>Track concerns, join shared conversations, and continue messages with the assigned LGU personnel.</p></div>
+                    {!ticketOnly && <span className='flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium' style={{ backgroundColor: `${theme.primaryColor}12`, color: theme.primaryColor }}><MdMenuBook size={14} /> {visits} knowledge visit{visits !== 1 ? 's' : ''}</span>}
                 </div>
 
                 {/* Search */}
                 <div className='relative'>
                     <MdSearch size={18} className='absolute left-3 top-1/2 -translate-y-1/2 opacity-50' color={theme.textColor} />
                     <input value={search} onChange={e => setSearch(e.target.value)} aria-label='Search past solutions and conversations' placeholder='Search concerns, past solutions, category or LGU personnel...'
-                        className='w-full rounded-xl border bg-white py-3 pl-10 pr-4 text-sm outline-none transition focus:ring-2'
+                        className='app-control w-full bg-white py-3 pl-10 pr-4 text-sm outline-none transition focus:ring-2'
                         style={{ borderColor: `${theme.secondaryColor}80`, color: theme.textColor, '--tw-ring-color': `${theme.primaryColor}35` }} />
                 </div>
 
                 {/* Top-level Tabs */}
-                <div className='flex flex-wrap gap-2 rounded-xl p-1' style={{ backgroundColor: `${theme.primaryColor}08` }}>
+                <div className='flex flex-wrap gap-1.5 rounded-2xl border p-1.5' style={{ borderColor: `${theme.primaryColor}18`, backgroundColor: `${theme.primaryColor}06` }}>
                     {[['all', 'All Tickets'], ['my', 'My Tickets'], ['resolved', 'My Resolved']].map(([tab, label]) => (
                         <button key={tab} onClick={() => { setTopTab(tab); setActiveTab('all') }}
-                            className='rounded-lg px-4 py-2 text-xs font-semibold transition-all'
+                            className='rounded-xl px-4 py-2.5 text-xs font-semibold transition-all hover:-translate-y-0.5'
                             style={{
                                 backgroundColor: topTab === tab ? theme.primaryColor : theme.primaryColor + '18',
                                 color: topTab === tab ? '#fff' : theme.primaryColor,
@@ -274,7 +284,7 @@ const FarmerKnowledgeRepository = () => {
                         {filtered.map(ticket => (
                             <div key={ticket.id} ref={el => ticketRefs.current[ticket.id] = el}
                                 onClick={() => handleView(ticket)}
-                                className='group flex cursor-pointer flex-col gap-3 rounded-xl p-4 transition-all hover:-translate-y-0.5 hover:shadow-md'
+                                className='app-card group flex cursor-pointer flex-col gap-3 p-5 transition-all hover:-translate-y-0.5 hover:shadow-lg'
                                 style={{ backgroundColor: '#fff', border: `1px solid ${theme.secondaryColor}70` }}>
                                 <div className='flex items-start justify-between gap-2'>
                                     <p className='line-clamp-1 text-sm font-semibold transition-colors group-hover:underline' style={{ color: theme.textColor }}>{ticket.title || ticket.concern}</p>
@@ -289,10 +299,11 @@ const FarmerKnowledgeRepository = () => {
                                 {ticket.categoryName && <p className='text-xs font-semibold' style={{ color: theme.primaryColor }}>{ticket.categoryName}</p>}
                                 {ticket.title && <p className='text-xs opacity-60 line-clamp-1' style={{ color: theme.textColor }}>{ticket.concern}</p>}
                                 {ticket.farmerName && <p className='text-xs opacity-70' style={{ color: theme.textColor }}>Submitted by: {ticket.farmerId === user?.id ? 'You' : ticket.farmerName}{ticket.barangay ? ` · ${ticket.barangay}` : ''}</p>}
-                                <div className='flex items-center justify-between'>
+                                <div className='flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-3' style={{ borderColor: `${theme.secondaryColor}35` }}>
                                     <p className='text-xs font-medium' style={{ color: theme.primaryColor }}>
-                                        Assigned to: {ticket.extensionWorkerName || 'Unassigned'}
+                                        Assigned to: <AssignedPersonnel ticket={ticket} />
                                     </p>
+                                    {ticket.acceptedAt && <p className='text-xs opacity-60' style={{ color: theme.textColor }}>Accepted: {formatDateTime(ticket.acceptedAt)}</p>}
                                     <p className='text-xs opacity-40' style={{ color: theme.textColor }}>
                                         {formatDate(ticket.date)}
                                     </p>
@@ -304,36 +315,27 @@ const FarmerKnowledgeRepository = () => {
             </div>
 
             {/* Detail Dialog */}
-            <Dialog isOpen={!!selected} onClose={() => setSelected(null)} title='Ticket Details' mobileMaxH='max-h-[120vh]'>
+            <Dialog isOpen={!!selected} onClose={() => setSelected(null)} title='Ticket Conversation' mobileMaxH='max-h-[90dvh]'>
                 {selected && (
-                    <div className='flex flex-col gap-4 w-full sm:w-[min(800px,90vw)] sm:min-w-[600px]'>
+                    <div className='flex w-full min-w-0 flex-col gap-4 sm:w-[min(800px,82vw)]'>
                         {/* Header */}
-                        <div className='flex items-start justify-between gap-3'>
-                            <div className='flex flex-col gap-0.5'>
-                                <p className='text-xs opacity-50' style={{ color: theme.textColor }}>Assigned to</p>
-                                <p className='text-sm font-medium' style={{ color: theme.textColor }}>{selected.extensionWorkerName || 'Unassigned'}</p>
-                                <p className='text-xs opacity-60' style={{ color: theme.textColor }}>Contact your assigned personnel in the conversation below.</p>
+                        <ConversationHeader ticket={selected} theme={theme} statusLabel={STATUS_LABEL[selected.status] ?? selected.status} statusStyle={statusStyle[selected.status]} />
+
+                        <TicketDetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen(value => !value)} theme={theme}>
+                            <TicketCapacity ticket={selected} />
+                            {selected.categoryName && <p className='text-sm' style={{ color: theme.textColor }}><strong>Category:</strong> {selected.categoryName}</p>}
+                            {selected.farmerName && <p className='text-sm' style={{ color: theme.textColor }}><strong>Submitted by:</strong> {selected.farmerId === user?.id ? 'You' : selected.farmerName}{selected.barangay ? ` · ${selected.barangay}` : ''}</p>}
+                            {/* Title + Concern */}
+                            <div className='flex flex-col gap-1'>
+                                {selected.title && <p className='text-base font-semibold' style={{ color: theme.textColor }}>{selected.title}</p>}
+                                <p className='text-xs opacity-50' style={{ color: theme.textColor }}>Concern</p>
+                                <p className='text-sm p-3 rounded-lg' style={{ backgroundColor: theme.primaryColor + '10', color: theme.textColor }}>
+                                    {selected.concern}
+                                </p>
                             </div>
-                            <span className='shrink-0 px-2 py-0.5 rounded-full text-xs font-medium'
-                                style={{ backgroundColor: statusStyle[selected.status]?.bg, color: statusStyle[selected.status]?.color }}>
-                                {STATUS_LABEL[selected.status] ?? selected.status}
-                            </span>
-                        </div>
 
-                        <TicketCapacity ticket={selected} />
-                        {selected.categoryName && <p className='text-sm' style={{ color: theme.textColor }}><strong>Category:</strong> {selected.categoryName}</p>}
-                        {selected.farmerName && <p className='text-sm' style={{ color: theme.textColor }}><strong>Submitted by:</strong> {selected.farmerId === user?.id ? 'You' : selected.farmerName}{selected.barangay ? ` · ${selected.barangay}` : ''}</p>}
-                        {/* Title + Concern */}
-                        <div className='flex flex-col gap-1'>
-                            {selected.title && <p className='text-base font-semibold' style={{ color: theme.textColor }}>{selected.title}</p>}
-                            <p className='text-xs opacity-50' style={{ color: theme.textColor }}>Concern</p>
-                            <p className='text-sm p-3 rounded-lg' style={{ backgroundColor: theme.primaryColor + '10', color: theme.textColor }}>
-                                {selected.concern}
-                            </p>
-                        </div>
-
-                        {/* Pinned Message */}
-                        {(() => {
+                            {/* Pinned Message */}
+                            {(() => {
                             const pinned = selected.messages?.find(m => m.isPinned)
                             return pinned ? (
                                 <div className='flex flex-col gap-1 cursor-pointer'
@@ -362,7 +364,8 @@ const FarmerKnowledgeRepository = () => {
                                     </div>
                                 </div>
                             ) : null
-                        })()}
+                            })()}
+                        </TicketDetailsToggle>
 
                         <hr style={{ borderColor: theme.secondaryColor }} />
 
@@ -376,10 +379,10 @@ const FarmerKnowledgeRepository = () => {
                             ) : selected.messages?.length === 0 ? (
                                 <p className='text-xs opacity-40 text-center py-4' style={{ color: theme.textColor }}>No messages yet</p>
                             ) : (
-                                <div ref={messagesContainerRef} className='flex flex-col gap-2 max-h-80 sm:min-h-100 sm:max-h-60 overflow-y-auto pr-1'>
+                                <div ref={messagesContainerRef} className='conversation-messages flex min-h-40 max-h-80 flex-col gap-3 overflow-y-auto rounded-xl bg-slate-50 p-3 sm:max-h-96'>
                                     {selected.messages?.map(msg => (
                                         <div key={msg.id} ref={el => msgRefs.current[msg.id] = el}
-                                            className='flex flex-col gap-0.5 p-3 rounded-lg'
+                                            className='flex flex-col gap-1 break-words rounded-2xl p-3 shadow-sm'
                                             style={{
                                                 backgroundColor: msg.senderId === user?.id ? theme.primaryColor + '18' : '#f3f4f6',
                                                 alignSelf: msg.senderId === user?.id ? 'flex-end' : 'flex-start',
@@ -401,7 +404,7 @@ const FarmerKnowledgeRepository = () => {
                                                     <MdInsertDriveFile size={14} />{msg.fileName}
                                                 </a>
                                             )}
-                                            <p className='text-xs opacity-40 text-right' style={{ color: theme.textColor }}>{formatDate(msg.date)}</p>
+                                            <p className='text-[11px] opacity-60 text-right' style={{ color: theme.textColor }}>{formatDateTime(msg.date)}</p>
                                         </div>
                                     ))}
 
@@ -454,10 +457,10 @@ const FarmerKnowledgeRepository = () => {
                                     <input value={reply} onChange={e => { setReply(e.target.value); setFileError('') }}
                                         onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendReply()}
                                         placeholder='Type a reply...'
-                                        className='flex-1 px-4 py-2.5 text-sm outline-none border rounded-lg'
+                                        aria-label='Your reply' className='app-control min-w-0 flex-1 px-3 py-2.5 text-sm outline-none'
                                         style={{ borderColor: theme.secondaryColor, backgroundColor: '#fff', color: theme.textColor }} />
-                                    <button onClick={handleSendReply} disabled={(!reply.trim() && !attachedFile) || sending}
-                                        className='px-3 rounded-lg transition-opacity'
+                                    <button onClick={handleSendReply} disabled={(!reply.trim() && !attachedFile) || sending} aria-label='Send reply'
+                                        className='min-h-11 shrink-0 px-3 rounded-lg transition-opacity'
                                         style={{ backgroundColor: theme.primaryColor, opacity: (!reply.trim() && !attachedFile) || sending ? 0.5 : 1, borderRadius: theme.borderRadius }}>
                                         {sending
                                             ? <AiOutlineLoading3Quarters className='animate-spin' size={16} color='#fff' />

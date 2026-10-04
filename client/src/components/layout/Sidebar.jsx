@@ -31,10 +31,11 @@ const Sidebar = ({ children, notificationCount = 0, navLinks = [] }) => {
     const btnStyle = (isActive = false, extraOpacity = null) => ({
         display: 'flex',
         alignItems: 'center',
-        padding: '0.625rem 0.75rem',
-        borderRadius: '0.5rem',
+        padding: '0.7rem 0.8rem',
+        borderRadius: '0.75rem',
         width: '100%',
-        backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
+        backgroundColor: isActive ? 'rgba(255,255,255,0.18)' : 'transparent',
+        border: isActive ? '1px solid rgba(255,255,255,0.18)' : '1px solid transparent',
         color: '#fff',
         opacity: extraOpacity ?? (isActive ? 1 : 0.75),
         fontSize: '0.875rem',
@@ -89,13 +90,14 @@ const Sidebar = ({ children, notificationCount = 0, navLinks = [] }) => {
                     </div>
 
                     {/* Nav Links */}
-                    <nav className='flex flex-col gap-1 px-3 py-4 flex-1'>
-                        {navLinks.map(({ label, path, icon: Icon }) => {
-                            const isActive = location.pathname === path
+                    <nav className='flex flex-col gap-1.5 px-3 py-5 flex-1' aria-label='Primary navigation'>
+                        {navLinks.map(({ label, path, icon: Icon, tone }) => {
+                            const isActive = location.pathname === path || location.pathname.startsWith(`${path}/`)
                             return (
                                 <button key={path} onClick={() => navigate(path)}
-                                    className='transition-colors rounded-lg'
-                                    style={btnStyle(isActive)}
+                                    aria-current={isActive ? 'page' : undefined}
+                                    className='app-nav-link rounded-xl'
+                                    style={{ ...btnStyle(isActive), ...(isActive && tone === 'ticketing' ? { backgroundColor: '#2563eb', borderColor: '#60a5fa' } : {}) }}
                                     title={!isOpen ? label : ''}>
                                     <span className='flex-shrink-0 w-5 flex justify-center'><Icon size={18} /></span>
                                     <span style={labelStyle}>{label}</span>
@@ -105,7 +107,7 @@ const Sidebar = ({ children, notificationCount = 0, navLinks = [] }) => {
                     </nav>
 
                     {/* Bottom */}
-                    <div className='px-3 py-4 flex flex-col gap-1' style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                    <div className='px-3 py-4 flex flex-col gap-1.5' style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                         <button onClick={() => navigate('/notifications')}
                             className='rounded-lg'
                             style={btnStyle(location.pathname === '/notifications')}
@@ -152,7 +154,7 @@ const Sidebar = ({ children, notificationCount = 0, navLinks = [] }) => {
                         </div>
                     </div>
 
-                    <main className='flex-1 p-4 md:p-6 pb-24 md:pb-6'>
+                    <main className='flex-1 bg-white/30 p-4 pb-24 md:p-8 md:pb-8'>
                         <div key={location.key} className='page-transition'>
                             {children}
                         </div>
@@ -164,13 +166,13 @@ const Sidebar = ({ children, notificationCount = 0, navLinks = [] }) => {
             {/* Mobile Bottom Nav */}
             <div className='fixed bottom-0 left-0 right-0 z-[60] flex items-center gap-1 overflow-x-auto px-2 py-2 shadow-lg md:hidden'
                 style={{ backgroundColor: theme.primaryColor, borderTop: '1px solid rgba(255,255,255,0.15)' }}>
-                {allLinks.map(({ label, path, icon: Icon, badge }) => {
+                {allLinks.map(({ label, path, icon: Icon, badge, tone }) => {
                     const isActive = location.pathname === path
                     const shortLabel = ({ Notifications: 'Notifs', 'Extension Workers': 'Workers', 'Knowledge Base': 'Knowledge', 'Ticket Repository': 'Tickets' })[label] || label
                     return (
                         <button key={path} onClick={() => navigate(path)} aria-label={label} aria-current={isActive ? 'page' : undefined}
-                            className='flex min-w-[62px] flex-1 flex-col items-center gap-0.5 rounded-lg px-2 py-1 transition-all'
-                            style={{ color: '#fff', opacity: isActive ? 1 : 0.6 }}>
+                            className='app-nav-link flex min-w-[62px] flex-1 flex-col items-center gap-0.5 rounded-xl px-2 py-1 transition-all'
+                            style={{ color: '#fff', opacity: isActive ? 1 : 0.6, backgroundColor: isActive && tone === 'ticketing' ? '#2563eb' : isActive ? 'rgba(255,255,255,0.16)' : 'transparent' }}>
                             <div className='relative'>
                                 <Icon size={20} />
                                 {badge > 0 && (

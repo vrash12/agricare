@@ -24,7 +24,7 @@ const HeroBanner = ({ user, badge, actionLabel, actionIcon: ActionIcon, actionPa
     const theme = useSelector((state) => state.theme)
     const navigate = useNavigate()
     return (
-        <div className='relative overflow-hidden rounded-2xl p-6 shadow-sm sm:p-8'
+        <div className='relative overflow-hidden rounded-2xl p-6 shadow-lg sm:p-8'
             style={{ background: `linear-gradient(135deg, ${theme.primaryColor}, ${theme.secondaryColor})` }}>
             <div className='relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
                 <div className='flex items-center gap-4'>
@@ -59,7 +59,7 @@ const StatCards = ({ items }) => {
     return (
         <div className={`grid gap-4 ${items.length === 4 ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'}`}>
             {items.map(({ icon: Icon, label, value, color }) => (
-                <div key={label} className='relative overflow-hidden rounded-xl p-5 shadow-sm'
+                <div key={label} className='app-card relative overflow-hidden p-5 transition hover:-translate-y-0.5 hover:shadow-lg'
                     style={{ backgroundColor: '#fff', border: `1px solid ${theme.secondaryColor}20` }}>
                     <div className='flex items-center justify-between'>
                         <div>
@@ -78,7 +78,7 @@ const StatCards = ({ items }) => {
 }
 
 const TicketChart = ({ data, theme, title = 'Ticket Activity' }) => (
-    <div className='p-6 rounded-xl shadow-sm' style={{ backgroundColor: '#fff', border: `1px solid ${theme.secondaryColor}20`, height: '260px' }}>
+    <div className='app-card p-5 sm:p-6' style={{ height: '260px' }}>
         <Bar
             data={{
                 labels: ['Today', 'This Week', 'This Month'],
@@ -128,7 +128,7 @@ const Dashboard = () => {
     }, [fetchStats])
 
     const adminContent = (
-        <div className='mx-auto flex w-full max-w-6xl flex-col gap-6'>
+        <div className='app-page flex flex-col gap-6'>
             <HeroBanner user={user} badge='Administrator' actionLabel='Manage Knowledge' actionIcon={MdMenuBook} actionPath='/admin/knowledge-base' />
             <StatCards items={[
                 { icon: MdPeople, label: 'Active Workers', value: stats?.workers?.active, color: '#22c55e' },
@@ -142,7 +142,7 @@ const Dashboard = () => {
     )
 
     const extensionWorkerContent = (
-        <div className='mx-auto flex w-full max-w-6xl flex-col gap-6'>
+        <div className='app-page flex flex-col gap-6'>
             <HeroBanner user={user} badge={user?.positionName} actionLabel='View Tickets' actionIcon={MdAssignment} actionPath='/extension-worker/tickets' />
             <StatCards items={[
                 { icon: MdConfirmationNumber, label: 'Total Tickets', value: stats?.total, color: theme.primaryColor },
@@ -154,9 +154,9 @@ const Dashboard = () => {
     )
 
     const farmerContent = (
-        <div className='mx-auto flex w-full max-w-6xl flex-col gap-6'>
+        <div className='app-page flex flex-col gap-6'>
             <HeroBanner user={user} badge='Farmer' actionLabel='Ask AgriXa' actionIcon={MdMenuBook} actionPath='/farmer/knowledge-repository' />
-            <div className='flex flex-col items-start justify-between gap-3 rounded-xl border bg-white p-5 shadow-sm sm:flex-row sm:items-center' style={{ borderColor: `${theme.secondaryColor}55` }}><div><p className='font-semibold' style={{ color: theme.textColor }}>Start with an answer</p><p className='mt-1 text-sm opacity-60' style={{ color: theme.textColor }}>Ask AgriXa about common farming concerns. Use Submit Ticket for additional help. Choose a category and AgriCare will assign the appropriate LGU personnel.</p></div><button onClick={() => navigate('/farmer/knowledge-repository')} className='flex shrink-0 items-center gap-1 text-sm font-semibold' style={{ color: theme.primaryColor }}>Explore answers <MdArrowForward size={17} /></button></div>
+            <div className='app-card flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:items-center' style={{ borderColor: `${theme.secondaryColor}55` }}><div><p className='font-semibold' style={{ color: theme.textColor }}>Start with an answer</p><p className='mt-1 text-sm text-slate-600'>Ask AgriXa about common farming concerns. Use Submit Ticket for additional help. Choose a category and AgriCare will assign the appropriate LGU personnel.</p></div><button onClick={() => navigate('/farmer/knowledge-repository')} className='flex shrink-0 items-center gap-1 text-sm font-semibold' style={{ color: theme.primaryColor }}>Explore answers <MdArrowForward size={17} /></button></div>
             <StatCards items={[
                 { icon: MdConfirmationNumber, label: 'Total Tickets', value: stats?.total, color: theme.primaryColor },
                 { icon: MdPending, label: 'Pending', value: stats?.pending, color: '#f59e0b' },

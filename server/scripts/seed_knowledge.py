@@ -1,8 +1,8 @@
-"""Populate AgriXa's live knowledge repository with 66 agricultural FAQs.
+"""Submit 66 sourced agricultural FAQs for Paniqui LGU validation.
 
 Run from server: py -3.12 scripts/seed_knowledge.py --apply
-Without --apply this only validates the content. Stable IDs and create-only
-writes make reruns safe without overwriting articles edited by LGU staff.
+Without --apply this only checks the content structure. Stable IDs preserve
+article text edited by LGU staff. Importing never approves an article.
 """
 
 import argparse
@@ -359,7 +359,7 @@ def validate():
         url = urlparse(article['sourceUrl'])
         if url.scheme != 'https' or not url.netloc:
             raise ValueError(f'Invalid source URL in {article["id"]}')
-    print(f'Validated {len(ARTICLES)} unique FAQs')
+    print(f'Checked {len(ARTICLES)} unique sourced FAQs; authorized review is still required')
     for category, count in sorted(Counter(a['category'] for a in ARTICLES).items()):
         print(f'  {category}: {count}')
 
@@ -370,7 +370,7 @@ def main():
     args = parser.parse_args()
     validate()
     if not args.apply:
-        print('Validation only. Pass --apply to publish the articles.')
+        print('Structure check only. Pass --apply to submit the articles for LGU validation.')
         return
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -384,18 +384,46 @@ def main():
         batch = db.batch()
         for article in missing:
             data = {key: value for key, value in article.items() if key != 'id'}
-            data.update(isPublished=True, createdBy='system:knowledge-seed',
-                        createdAt=now, updatedAt=now, seedVersion=1)
+            data.update(isPublished=False, createdBy='system:knowledge-seed',
+                        createdAt=now, updatedAt=now, seedVersion=1,
+                        validationStatus='pending', submittedAt=now)
             batch.create(collection.document(article['id']), data)
         batch.commit()
+
+    # Older imports still require an authorized review. A seed operation or
+    # a source link alone cannot certify agricultural advice.
+    backfilled = 0
+    for article in ARTICLES:
+        ref = collection.document(article['id'])
+        snapshot = ref.get()
+        if not snapshot.exists:
+            continue
+        current = snapshot.to_dict()
+        updates = {}
+        if not current.get('sourceName'):
+            updates['sourceName'] = article['sourceName']
+        if not current.get('sourceUrl'):
+            updates['sourceUrl'] = article['sourceUrl']
+        if (not current.get('validationStatus')
+                or current.get('validatedBy') == 'system:knowledge-seed'
+                or updates):
+            updates.update(
+                validationStatus='pending', isPublished=False, submittedAt=now,
+                validatedBy=None, validatedByName=None, validatedAt=None,
+                validatedByRole=None, validationNote=None, updatedAt=now,
+            )
+        if updates:
+            ref.update(updates)
+            backfilled += 1
 
     saved = {doc.id: doc.to_dict() for doc in collection.stream()}
     seeded = [saved[article['id']] for article in ARTICLES]
     published = sum(entry.get('isPublished') is True for entry in seeded)
-    print(f'Created: {len(missing)}; existing seed entries preserved: {len(ARTICLES) - len(missing)}')
+    print(f'Created: {len(missing)}; metadata backfilled: {backfilled}; existing seed entries preserved: {len(ARTICLES) - len(missing)}')
     print(f'Live repository total: {len(saved)}; seeded FAQs: {len(seeded)}; published seeded FAQs: {published}')
-    if len(missing) and published < len(missing):
-        raise RuntimeError('Published-entry verification failed')
+    if any(saved[article['id']].get('validationStatus') != 'pending'
+           or saved[article['id']].get('isPublished') is not False for article in missing):
+        raise RuntimeError('Pending-validation verification failed')
 
 
 if __name__ == '__main__':

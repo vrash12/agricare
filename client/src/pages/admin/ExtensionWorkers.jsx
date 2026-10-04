@@ -165,9 +165,9 @@ const ExtensionWorkers = () => {
                     <button type='submit' disabled={personSaving} className='rounded-lg bg-green-800 text-white p-2'>{personSaving ? 'Saving…' : 'Save personnel'}</button>
                 </form>}
             </Dialog>
-            <div className='flex flex-col gap-4'>
-                <div className='flex items-center justify-between'>
-                    <h1 className='text-2xl font-bold' style={{ color: theme.textColor }}>Personnel Management</h1>
+            <div className='app-page flex flex-col gap-5'>
+                <div className='flex flex-wrap items-end justify-between gap-3'>
+                    <header><p className='app-kicker' style={{ color: theme.primaryColor }}>Admin directory</p><h1 className='app-page-title' style={{ color: theme.textColor }}>Personnel Management</h1><p className='app-page-subtitle'>Add, update, and organize LGU personnel and their positions.</p></header>
                     <div className='flex flex-wrap items-center gap-2'>
                         <Button size='sm' onClick={() => {setEditPerson({}); setPersonError('')}}>Add personnel</Button>
                         <Button size='sm' variant='outline' onClick={() => exportCSV(
@@ -191,16 +191,16 @@ const ExtensionWorkers = () => {
                 <div className='relative'>
                     <MdSearch size={18} className='absolute left-3 top-1/2 -translate-y-1/2 opacity-50' color={theme.textColor} />
                     <input value={search} onChange={e => handleSearch(e.target.value)} placeholder='Search by name, username...'
-                        className='w-full pl-9 pr-4 py-2.5 text-sm outline-none border rounded-lg'
+                        className='app-control w-full pl-9 pr-4 py-2.5 text-sm outline-none'
                         style={{ borderColor: theme.secondaryColor, backgroundColor: '#fff', color: theme.textColor }} />
                 </div>
 
-                <div className='rounded-xl shadow-sm overflow-x-auto' style={{ border: `1px solid ${theme.secondaryColor}` }}>
+                <div className='app-card overflow-x-auto' style={{ borderColor: theme.secondaryColor }}>
                     <table className='w-full text-sm min-w-[640px]'>
                         <thead style={{ backgroundColor: theme.primaryColor }}>
                             <tr>
                                 {['Name', 'Username', 'Mobile', 'Position', 'Status', 'Registered', 'Actions'].map(h => (
-                                    <th key={h} className='px-4 py-3 text-left text-white font-medium'>{h}</th>
+                                    <th key={h} className='px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-white'>{h}</th>
                                 ))}
                             </tr>
                         </thead>

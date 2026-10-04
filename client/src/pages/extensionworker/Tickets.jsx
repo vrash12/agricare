@@ -8,6 +8,9 @@ import Dialog from '../../components/ui/Dialog'
 import Button from '../../components/ui/Button'
 import api from '../../services/api'
 import TicketCapacity from '../../components/tickets/TicketCapacity'
+import AssignedPersonnel from '../../components/tickets/AssignedPersonnel'
+import TicketDetailsToggle from '../../components/tickets/TicketDetailsToggle'
+import ConversationHeader from '../../components/tickets/ConversationHeader'
 
 const STATUS_TABS = ['all', 'pending', 'ongoing', 'waiting_for_feedback', 'resolved']
 const STATUS_LABEL = {
@@ -30,6 +33,11 @@ const formatDate = (iso) => {
     return new Date(iso).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
+const formatDateTime = (iso) => {
+    if (!iso) return ''
+    return new Date(iso).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+}
+
 const ExtensionWorkerTickets = () => {
     const theme = useSelector((state) => state.theme)
     const { user } = useSelector((state) => state.auth)
@@ -43,6 +51,7 @@ const ExtensionWorkerTickets = () => {
     const [exportNotice, setExportNotice] = useState('')
     const [activeTab, setActiveTab] = useState('all')
     const [selected, setSelected] = useState(null)
+    const [detailsOpen, setDetailsOpen] = useState(false)
     const [detailLoading, setDetailLoading] = useState(false)
     const [reply, setReply] = useState('')
     const [sending, setSending] = useState(false)
@@ -124,6 +133,7 @@ const ExtensionWorkerTickets = () => {
     async function handleView(ticket) {
         setAccessNotice('')
         setSelected({ ...ticket, messages: [] })
+        setDetailsOpen(false)
         setReply('')
         setAttachedFile(null)
         setFileError('')
@@ -221,9 +231,10 @@ const ExtensionWorkerTickets = () => {
         if (!selected) return
         setUpdatingStatus(true)
         try {
-            await api.patch(`/tickets/${selected.id}/status/`, { status: newStatus })
-            setSelected(prev => ({ ...prev, status: newStatus }))
-            setTickets(prev => prev.map(t => t.id === selected.id ? { ...t, status: newStatus } : t))
+            const response = await api.patch(`/tickets/${selected.id}/status/`, { status: newStatus })
+            const updated = response.data?.ticket || { status: newStatus }
+            setSelected(prev => ({ ...prev, ...updated }))
+            setTickets(prev => prev.map(t => t.id === selected.id ? { ...t, ...updated } : t))
         } finally {
             setUpdatingStatus(false)
         }
@@ -231,19 +242,19 @@ const ExtensionWorkerTickets = () => {
 
     return (
         <ExtensionWorkerLayout>
-            <div className='flex flex-col gap-4'>
-                <h1 className='text-2xl font-bold' style={{ color: theme.textColor }}>My Tickets</h1>
+            <div className='app-page flex flex-col gap-5'>
+                <header><p className='app-kicker' style={{ color: theme.primaryColor }}>LGU personnel workspace</p><h1 className='app-page-title' style={{ color: theme.textColor }}>My Tickets</h1><p className='app-page-subtitle'>Review assigned farmer concerns, filter ticket history, and respond from one focused workspace.</p></header>
                 {accessNotice && <p role='status' className='rounded-lg bg-amber-50 p-3 text-sm text-amber-900'>{accessNotice}</p>}
 
                 {/* Search */}
                 <div className='relative'>
                     <MdSearch size={18} className='absolute left-3 top-1/2 -translate-y-1/2 opacity-50' color={theme.textColor} />
                     <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search by concern...'
-                        className='w-full pl-9 pr-4 py-2.5 text-sm outline-none border rounded-lg'
+                        className='app-control w-full pl-9 pr-4 py-2.5 text-sm outline-none'
                         style={{ borderColor: theme.secondaryColor, backgroundColor: '#fff', color: theme.textColor }} />
                 </div>
 
-                <section className='rounded-xl border bg-white p-4 flex flex-col gap-3' style={{borderColor: theme.secondaryColor}}>
+                <section className='app-card flex flex-col gap-4 p-5' style={{borderColor: theme.secondaryColor}}>
                     <h2 className='font-semibold'>Ticket history filters</h2>
                     <div className='flex flex-wrap gap-3 items-end'>
                         <label className='text-sm flex flex-col gap-1'>Barangay<select className='border rounded-lg p-2' value={barangay} onChange={e => {setBarangay(e.target.value); setExportIds([])}}><option value=''>All barangays</option>{[...new Set(tickets.map(t => t.barangay || 'Unspecified'))].sort().map(b => <option key={b}>{b}</option>)}</select></label>
@@ -286,7 +297,7 @@ const ExtensionWorkerTickets = () => {
                         {filtered.map(ticket => (
                             <div key={ticket.id} ref={el => ticketRefs.current[ticket.id] = el}
                                 onClick={() => handleView(ticket)}
-                                className='flex flex-col gap-2 p-4 rounded-xl cursor-pointer transition-all hover:shadow-md'
+                            className='app-card flex cursor-pointer flex-col gap-3 p-5 transition-all hover:-translate-y-0.5 hover:shadow-lg'
                                 style={{ backgroundColor: '#fff', border: `1px solid ${theme.secondaryColor}` }}>
                                 <div className='flex items-start justify-between gap-2'>
                                     <p className='text-sm font-semibold line-clamp-1' style={{ color: theme.textColor }}>{ticket.title || ticket.concern}</p>
@@ -300,7 +311,8 @@ const ExtensionWorkerTickets = () => {
                                 <TicketCapacity ticket={ticket} compact />
                                 {ticket.categoryName && <p className='text-xs font-semibold' style={{ color: theme.primaryColor }}>{ticket.categoryName}</p>}
                                 {ticket.title && <p className='text-xs opacity-60 line-clamp-1' style={{ color: theme.textColor }}>{ticket.concern}</p>}
-                                <p className='text-xs font-medium' style={{ color: theme.primaryColor }}>Assigned to: {ticket.extensionWorkerName || 'Unassigned'}</p>
+                                <p className='text-xs font-medium' style={{ color: theme.primaryColor }}>Assigned to: <AssignedPersonnel ticket={ticket} /></p>
+                                {ticket.acceptedAt && <p className='text-xs opacity-60' style={{ color: theme.textColor }}>Accepted: {formatDateTime(ticket.acceptedAt)}</p>}
                                 <div className='flex items-center justify-between'>
                                     <p className='text-xs opacity-50' style={{ color: theme.textColor }}>
                                         {ticket.categoryName || 'Agricultural concern'}
@@ -314,31 +326,26 @@ const ExtensionWorkerTickets = () => {
             </div>
 
             {/* Detail Dialog */}
-            <Dialog isOpen={!!selected} onClose={() => setSelected(null)} title='Ticket' mobileMaxH='max-h-[120vh]'>
+            <Dialog isOpen={!!selected} onClose={() => setSelected(null)} title='Ticket Conversation' mobileMaxH='max-h-[90dvh]'>
                 {selected && (
-                    <div className='flex flex-col gap-4 w-full sm:w-[min(800px,90vw)] sm:min-w-[800px]'>
+                    <div className='flex w-full min-w-0 flex-col gap-4 sm:w-[min(800px,82vw)]'>
                         {/* Header */}
-                        <div className='flex items-center justify-between gap-3'>
-                            <div><p className='text-xs opacity-60' style={{ color: theme.textColor }}>Assigned to</p><p className='text-sm font-semibold' style={{ color: theme.textColor }}>{selected.extensionWorkerName || 'Unassigned'}</p><p className='mt-1 text-xs opacity-50' style={{ color: theme.textColor }}>{formatDate(selected.date)}</p></div>
-                            <span className='shrink-0 px-2 py-0.5 rounded-full text-xs font-medium'
-                                style={{ backgroundColor: statusStyle[selected.status]?.bg, color: statusStyle[selected.status]?.color }}>
-                                {STATUS_LABEL[selected.status] ?? selected.status}
-                            </span>
-                        </div>
+                        <ConversationHeader ticket={selected} theme={theme} statusLabel={STATUS_LABEL[selected.status] ?? selected.status} statusStyle={statusStyle[selected.status]} />
 
-                        <TicketCapacity ticket={selected} />
-                        {selected.categoryName && <p className='text-sm' style={{ color: theme.textColor }}><strong>Category:</strong> {selected.categoryName}</p>}
-                        {/* Title + Concern */}
-                        <div className='flex flex-col gap-1'>
-                            {selected.title && <p className='text-base font-semibold' style={{ color: theme.textColor }}>{selected.title}</p>}
-                            <p className='text-xs opacity-50' style={{ color: theme.textColor }}>Concern</p>
-                            <p className='text-sm p-3 rounded-lg' style={{ backgroundColor: theme.primaryColor + '10', color: theme.textColor }}>
-                                {selected.concern}
-                            </p>
-                        </div>
+                        <TicketDetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen(value => !value)} theme={theme}>
+                            <TicketCapacity ticket={selected} />
+                            {selected.categoryName && <p className='text-sm' style={{ color: theme.textColor }}><strong>Category:</strong> {selected.categoryName}</p>}
+                            {/* Title + Concern */}
+                            <div className='flex flex-col gap-1'>
+                                {selected.title && <p className='text-base font-semibold' style={{ color: theme.textColor }}>{selected.title}</p>}
+                                <p className='text-xs opacity-50' style={{ color: theme.textColor }}>Concern</p>
+                                <p className='text-sm p-3 rounded-lg' style={{ backgroundColor: theme.primaryColor + '10', color: theme.textColor }}>
+                                    {selected.concern}
+                                </p>
+                            </div>
 
-                        {/* Pinned Message */}
-                        {(() => {
+                            {/* Pinned Message */}
+                            {(() => {
                             const pinned = selected.messages?.find(m => m.isPinned)
                             return pinned ? (
                                 <div className='flex flex-col gap-1 cursor-pointer'
@@ -367,7 +374,8 @@ const ExtensionWorkerTickets = () => {
                                     </div>
                                 </div>
                             ) : null
-                        })()}
+                            })()}
+                        </TicketDetailsToggle>
 
                         <hr style={{ borderColor: theme.secondaryColor }} />
 

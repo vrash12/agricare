@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useSelector } from 'react-redux'
-import { MdMenuBook, MdSupportAgent, MdDashboard } from 'react-icons/md'
+import { MdMenuBook, MdSupportAgent, MdDashboard, MdConfirmationNumber } from 'react-icons/md'
 import Topbar from './Topbar'
 import Sidebar from './Sidebar'
 import api from '../../services/api'
@@ -8,7 +8,8 @@ import FarmerActions from '../tickets/FarmerActions'
 
 const farmerNavLinks = [
     { label: 'Dashboard', path: '/dashboard', icon: MdDashboard },
-    { label: 'AgriXa', path: '/farmer/knowledge-repository', icon: MdMenuBook },
+    { label: 'AgriXa', path: '/farmer/knowledge-repository', icon: MdMenuBook, tone: 'knowledge' },
+    { label: 'Ticketing System', path: '/farmer/tickets', icon: MdConfirmationNumber, tone: 'ticketing' },
     { label: 'Extension Workers', path: '/farmer/extension-workers', icon: MdSupportAgent },
 ]
 
