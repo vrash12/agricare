@@ -1,5 +1,28 @@
 # AgriCare
 
+## Knowledge review and search
+
+In Admin → Knowledge Base, designate active, approved LGU personnel using
+**Designated knowledge reviewers**. Admins can review by default. Ordinary
+personnel may submit articles but cannot approve them. Authors, last editors,
+and recorded contributors cannot review their own submissions, including Admins.
+
+Open each pending article's source and verify that it supports the advice and
+applies to local conditions. Approval requires both confirmations and review
+notes. Edited articles return to pending validation. A changed article must be
+opened and reviewed again before approval. Seed imports never certify advice.
+
+Run `py -3.12 scripts/audit_knowledge_sources.py --output ../artifacts/knowledge-source-audit.csv`
+from `server` for a read-only reference availability report. Reachability is
+not proof of content accuracy; the report remains pending authorized LGU review.
+
+AgriXa matches English and Tagalog agricultural terms and common phrases.
+Results are ordered by query relevance; article-topic hits receive more weight
+than answer-only hits. Matching percentages do not measure answer correctness.
+
+Regression checks: from `server`, run
+`py -3.12 -m unittest discover -s tests -p "test_knowledge*.py" -v`.
+
 Agricultural assistance platform with farmer concern tickets, category-based personnel assignment, a knowledge repository, and participant-capacity warnings.
 
 ## Project layout

@@ -1,6 +1,4 @@
 from datetime import datetime, timezone
-import re
-import unicodedata
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -10,12 +8,62 @@ from urllib.parse import urlparse
 
 from core.firebase import db
 from .firebase_service import get_user_by_id
+from .permissions import IsApplicationUser, IsAdmin, is_active_user, WORKER_ROLES
 
 
 COLLECTION = 'knowledge_entries'
 MANAGER_ROLES = {'admin', 'extension_worker', 'lgu_personnel'}
-VALIDATOR_ROLES = {'admin', 'extension_worker', 'lgu_personnel'}
 VALIDATION_STATUSES = {'pending', 'validated', 'rejected'}
+REVIEWERS_COLLECTION = 'knowledge_reviewers'
+
+
+def can_validate(user):
+    if not is_active_user(user):
+        return False
+    if user.role == 'admin':
+        return True
+    if user.role not in WORKER_ROLES:
+        return False
+    account = get_user_by_id(str(user.id)) or {}
+    grant = db.collection(REVIEWERS_COLLECTION).document(str(user.id)).get()
+    return (account.get('role') in WORKER_ROLES and account.get('isActive', True) and not account.get('isPending', False)
+            and grant.exists and grant.to_dict().get('enabled') is True)
+
+
+class KnowledgeReviewersView(APIView):
+    permission_classes = [IsAuthenticated, IsApplicationUser]
+
+    def get(self, request):
+        result = {'canValidate': can_validate(request.user), 'reviewers': []}
+        if request.user.role == 'admin':
+            from .firebase_service import get_all_extension_workers
+            grants = {doc.id: doc.to_dict() for doc in db.collection(REVIEWERS_COLLECTION).get()}
+            result['reviewers'] = [{
+                'id': worker['id'],
+                'name': ' '.join(filter(None, [worker.get('firstName'), worker.get('lastName')])),
+                'enabled': grants.get(worker['id'], {}).get('enabled') is True,
+                'isActive': worker.get('isActive', True),
+                'isPending': worker.get('isPending', False),
+            } for worker in get_all_extension_workers()]
+        return Response(result)
+
+    def patch(self, request):
+        if not IsAdmin().has_permission(request, self):
+            return Response({'error': 'Only an Admin can designate reviewers.'}, status=403)
+        user_id = str(request.data.get('userId') or '').strip()
+        enabled = request.data.get('enabled')
+        worker = get_user_by_id(user_id) if user_id else None
+        if not worker or worker.get('role') not in WORKER_ROLES:
+            return Response({'error': 'LGU personnel account not found.'}, status=404)
+        if not isinstance(enabled, bool):
+            return Response({'error': 'enabled must be true or false.'}, status=400)
+        if enabled and (not worker.get('isActive', True) or worker.get('isPending', False)):
+            return Response({'error': 'Approve and activate the account before designation.'}, status=400)
+        db.collection(REVIEWERS_COLLECTION).document(user_id).set({
+            'enabled': enabled, 'designatedBy': str(request.user.id),
+            'updatedAt': datetime.now(timezone.utc).isoformat(),
+        })
+        return Response({'userId': user_id, 'enabled': enabled})
 
 # Require an HTTPS reference on an official government, academic, FAO, or
 # IRRI domain. The reviewer must check that the page supports the advice;
@@ -34,7 +82,9 @@ def _entry(doc):
     # the Paniqui LGU still performs the required human review.
     if (not entry.get('validationStatus')
             or entry.get('validatedBy') == 'system:knowledge-seed'
-            or entry.get('validatedByName') == 'Curated agricultural source'):
+            or entry.get('validatedByName') == 'Curated agricultural source'
+            or (entry.get('validatedBy') and entry.get('validatedBy') in {
+                entry.get('createdBy'), entry.get('lastEditedBy'), *(entry.get('contributorIds') or [])})):
         entry.update(validationStatus='pending', isPublished=False)
     return entry
 
@@ -68,53 +118,11 @@ def _actor_name(user):
     return name or str(user.id)
 
 
-_STOP_WORDS = {
-    'a', 'about', 'ang', 'and', 'ano', 'are', 'at', 'ba', 'bakit', 'can', 'do',
-    'for', 'how', 'i', 'in', 'is', 'ito', 'ko', 'may', 'mga', 'me', 'my', 'na',
-    'ng', 'of', 'on', 'or', 'our', 'sa', 'the', 'this', 'to', 'what', 'when',
-    'where', 'which', 'who', 'why', 'with', 'we', 'you', 'your', 'does', 'did',
-    'there', 'kung', 'paano', 'pwede', 'maaari', 'aking',
-}
-
-# Common Filipino agricultural terms are mapped to the English terms used in
-# the repository. This keeps the search lightweight while allowing questions
-# such as "Bakit naninilaw ang dahon ng palay?" to match English FAQs.
-_BILINGUAL_TERMS = {
-    'palay': 'rice', 'bigas': 'rice', 'butil': 'grain', 'mais': 'corn',
-    'gulay': 'vegetable', 'gulayan': 'vegetable', 'prutas': 'fruit',
-    'saka': 'farm', 'sakahan': 'farm', 'bukid': 'farm', 'magsasaka': 'farmer',
-    'peste': 'pest', 'pestehan': 'pest', 'sakit': 'disease', 'karamdaman': 'disease',
-    'halaman': 'plant', 'tanim': 'planting', 'magtanim': 'planting', 'pagtatanim': 'planting',
-    'barayti': 'variety', 'punla': 'seedling', 'kuhol': 'snail', 'patubig': 'irrigation',
-    'damo': 'weed', 'pagpapatuyo': 'drying', 'bodega': 'storage', 'gastos': 'cost',
-    'panahon': 'weather', 'bagyo': 'typhoon', 'baha': 'flood', 'hayop': 'animal',
-    'bakuna': 'vaccination', 'pakain': 'feed',
-    'dahon': 'leaf', 'dilaw': 'yellow', 'naninilaw': 'yellow', 'lupa': 'soil',
-    'pataba': 'fertilizer', 'abono': 'fertilizer', 'binhi': 'seed', 'buto': 'seed',
-    'ulan': 'rain', 'tubig': 'water', 'ani': 'harvest', 'pagaani': 'harvest',
-    'presyo': 'price', 'benta': 'market', 'pamilihan': 'market', 'rehistro': 'registration',
-    'pagrehistro': 'registration', 'seguro': 'insurance', 'gamot': 'treatment',
-    'lunas': 'treatment', 'alaga': 'care', 'alagaing': 'care', 'sungay': 'ear',
-    'leaves': 'leaf', 'yellowing': 'yellow', 'seeds': 'seed', 'snails': 'snail',
-    'weeds': 'weed', 'vegetables': 'vegetable', 'fruits': 'fruit', 'plants': 'plant',
-}
-
-
-def _canonical_word(word):
-    word = ''.join(char for char in unicodedata.normalize('NFKD', word) if not unicodedata.combining(char))
-    word = word.lower().strip(".,!?;:()[]{}\"'“”‘’")
-    return _BILINGUAL_TERMS.get(word, word)
-
-
-def _tokens(value):
-    if isinstance(value, (list, tuple, set)):
-        value = ' '.join(str(item) for item in value)
-    words = (_canonical_word(word) for word in re.findall(r"[\w’'-]+", str(value or ''), flags=re.UNICODE))
-    return {word for word in words if len(word) > 2 and word not in _STOP_WORDS}
+from .knowledge_search import tokens as _tokens, rank_entries
 
 
 class KnowledgeListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsApplicationUser]
 
     def get(self, request):
         query = (request.query_params.get('q') or '').strip().lower()
@@ -126,23 +134,7 @@ class KnowledgeListView(APIView):
         if category:
             entries = [item for item in entries if item.get('category') == category]
         if query:
-            incoming = _tokens(query)
-            ranked = []
-            for item in entries:
-                title_question = _tokens(' '.join([item.get('title', ''), item.get('question', '')]))
-                keywords = _tokens(item.get('keywords', []))
-                answer = _tokens(item.get('answer', ''))
-                matched = incoming & (title_question | keywords | answer)
-                if matched:
-                    # Percentage represents the share of meaningful query
-                    # terms found anywhere in the article. The field score is
-                    # used only to break ties in favor of title/question and
-                    # keywords over a long answer body.
-                    percentage = round(100 * len(matched) / max(len(incoming), 1))
-                    field_score = len(matched & title_question) * 3 + len(matched & keywords) * 2 + len(matched & answer)
-                    result = {**item, 'matchPercentage': percentage}
-                    ranked.append((percentage, field_score, result))
-            entries = [item for _, _, item in sorted(ranked, key=lambda row: (row[0], row[1]), reverse=True)]
+            entries = rank_entries(entries, query)
         else:
             entries.sort(key=lambda item: item.get('updatedAt', item.get('createdAt', '')), reverse=True)
         return Response(entries)
@@ -183,7 +175,7 @@ class KnowledgeListView(APIView):
 
 
 class KnowledgeDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsApplicationUser]
 
     def patch(self, request, entry_id):
         if request.user.role not in MANAGER_ROLES:
@@ -192,7 +184,7 @@ class KnowledgeDetailView(APIView):
         doc = ref.get()
         if not doc.exists:
             return Response({'error': 'Knowledge entry not found'}, status=status.HTTP_404_NOT_FOUND)
-        current = doc.to_dict()
+        current = _entry(doc)
         allowed = ('title', 'question', 'answer', 'category', 'keywords', 'sourceName', 'sourceUrl')
         changes = {key: request.data[key] for key in allowed if key in request.data}
         if 'title' in changes: changes['title'] = str(changes['title']).strip()
@@ -219,15 +211,19 @@ class KnowledgeDetailView(APIView):
                 'validatedByRole': None,
                 'validatedAt': None,
                 'validationNote': None,
+                'lastEditedBy': str(request.user.id),
+                'contributorIds': list(dict.fromkeys([*(current.get('contributorIds') or []), str(request.user.id)])),
             })
         if 'isPublished' in request.data:
             requested_public = bool(request.data.get('isPublished'))
-            if requested_public and request.user.role not in VALIDATOR_ROLES:
+            if requested_public and not can_validate(request.user):
                 return Response({'error': 'Only authorized LGU personnel or an Admin can publish validated knowledge.'}, status=status.HTTP_403_FORBIDDEN)
-            if requested_public and current.get('validationStatus') != 'validated':
+            if requested_public and (content_changed or current.get('validationStatus') != 'validated'):
                 return Response({'error': 'Validate the source and recommendation before publishing.'}, status=status.HTTP_400_BAD_REQUEST)
             if not requested_public:
                 changes['isPublished'] = False
+            else:
+                changes['isPublished'] = True
         changes['updatedAt'] = datetime.now(timezone.utc).isoformat()
         ref.update(changes)
         return Response({'id': entry_id, **current, **changes})
@@ -243,10 +239,10 @@ class KnowledgeDetailView(APIView):
 
 
 class KnowledgeValidationView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsApplicationUser]
 
     def post(self, request, entry_id):
-        if request.user.role not in VALIDATOR_ROLES:
+        if not can_validate(request.user):
             return Response({'error': 'Only authorized LGU personnel or an Admin can validate knowledge.'}, status=status.HTTP_403_FORBIDDEN)
         action = str(request.data.get('action') or '').strip().lower()
         if action not in {'approve', 'reject'}:
@@ -256,7 +252,17 @@ class KnowledgeValidationView(APIView):
         doc = ref.get()
         if not doc.exists:
             return Response({'error': 'Knowledge entry not found'}, status=status.HTTP_404_NOT_FOUND)
-        current = doc.to_dict()
+        current = _entry(doc)
+        if str(request.user.id) in {current.get('createdBy'), current.get('lastEditedBy'), *(current.get('contributorIds') or [])}:
+            return Response({'error': 'The author or last editor cannot review this submission. Ask another designated reviewer.'}, status=403)
+        if current.get('validationStatus', 'pending') != 'pending':
+            return Response({'error': 'This submission is no longer pending review. Refresh the repository.'}, status=409)
+        if request.data.get('reviewedUpdatedAt') != current.get('updatedAt'):
+            return Response({'error': 'The article changed after you opened it. Refresh and review the latest version.'}, status=409)
+        if action == 'approve' and (request.data.get('sourceVerified') is not True
+                                    or request.data.get('localApplicabilityVerified') is not True
+                                    or not str(request.data.get('note') or '').strip()):
+            return Response({'error': 'Confirm the supporting source and local applicability, and record review findings before approval.'}, status=400)
         if not str(current.get('title') or '').strip() or not str(current.get('answer') or '').strip():
             if action == 'approve':
                 return Response({'error': 'A title and recommended solution are required before approval.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -273,10 +279,22 @@ class KnowledgeValidationView(APIView):
             'validatedByName': reviewer,
             'validatedByRole': request.user.role,
             'validatedAt': now,
+            'sourceVerified': action == 'approve',
+            'localApplicabilityVerified': action == 'approve',
             'validationNote': str(request.data.get('note') or '').strip() or (
                 'Approved by an authorized LGU personnel or Admin.' if action == 'approve' else 'Returned for source or content review.'
             ),
             'updatedAt': now,
         }
-        ref.update(changes)
+        # Refuse to publish if the article changes between inspection and write.
+        update_time = getattr(doc, 'update_time', None)
+        if update_time is not None:
+            from google.cloud.firestore_v1 import LastUpdateOption
+            from google.api_core.exceptions import FailedPrecondition
+            try:
+                ref.update(changes, option=LastUpdateOption(update_time))
+            except FailedPrecondition:
+                return Response({'error': 'The article changed during review. Refresh and review it again.'}, status=409)
+        else:
+            ref.update(changes)
         return Response({'id': entry_id, **current, **changes})

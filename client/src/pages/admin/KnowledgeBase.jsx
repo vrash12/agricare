@@ -35,10 +35,26 @@ const KnowledgeBase = () => {
     const [reviewEntry, setReviewEntry] = useState(null)
     const [reviewNote, setReviewNote] = useState('')
     const [error, setError] = useState('')
-    const canValidate = ['admin', 'extension_worker', 'lgu_personnel'].includes(user?.role)
+    const [canValidate, setCanValidate] = useState(false)
+    const [reviewers, setReviewers] = useState([])
+    const [reviewerBusy, setReviewerBusy] = useState(null)
+    const [sourceVerified, setSourceVerified] = useState(false)
+    const [localVerified, setLocalVerified] = useState(false)
+    const loadReviewers = () => api.get('/knowledge/reviewers/').then(({ data }) => {
+        setCanValidate(data.canValidate)
+        setReviewers(data.reviewers)
+    }).catch(() => { setCanValidate(false); setError('Unable to load reviewer permissions.') })
+    const designate = async (person, enabled) => {
+        setReviewerBusy(person.id)
+        setError('')
+        try { await api.patch('/knowledge/reviewers/', { userId: person.id, enabled }); await loadReviewers() }
+        catch (err) { setError(err.response?.data?.error || 'Unable to update reviewer designation.') }
+        finally { setReviewerBusy(null) }
+    }
+    const mayReview = entry => canValidate && ![entry.createdBy, entry.lastEditedBy, ...(entry.contributorIds || [])].includes(String(user?.id))
 
     const load = () => api.get('/knowledge/').then(res => setEntries(res.data)).catch(() => setError('Unable to load the knowledge base.'))
-    useEffect(() => { load() }, [])
+    useEffect(() => { load(); loadReviewers() }, [])
 
     const stats = useMemo(() => ({
         total: entries.length,
@@ -85,7 +101,7 @@ const KnowledgeBase = () => {
         setReviewing(`${entry.id}:${action}`)
         setError('')
         try {
-            await api.post(`/knowledge/${entry.id}/validate/`, { action, note: reviewNote.trim() })
+            await api.post(`/knowledge/${entry.id}/validate/`, { action, note: reviewNote.trim(), sourceVerified, localApplicabilityVerified: localVerified, reviewedUpdatedAt: entry.updatedAt })
             setReviewEntry(null)
             setReviewNote('')
             await load()
@@ -118,6 +134,15 @@ const KnowledgeBase = () => {
                     ].map(([label, value, Icon, color]) => <div key={label} className='app-card p-4'><div className='flex items-center justify-between'><p className='text-xs font-medium text-slate-500'>{label}</p><Icon size={18} color={color} /></div><p className='mt-2 text-2xl font-bold text-slate-800'>{value}</p></div>)}
                 </div>
 
+                {user?.role === 'admin' && <section className='app-card p-5' aria-labelledby='reviewer-heading'>
+                    <h2 id='reviewer-heading' className='text-lg font-bold text-slate-800'>Designated knowledge reviewers</h2>
+                    <p className='mt-1 text-sm text-slate-600'>Designate authorized Paniqui LGU personnel to review agricultural sources and local recommendations. Admins can also review. Authors and contributors must ask another reviewer.</p>
+                    <div className='mt-4 grid gap-3 md:grid-cols-2'>{reviewers.map(person => <label key={person.id} className='flex items-center gap-3 rounded-xl border p-3 text-sm'>
+                        <input type='checkbox' checked={person.enabled} disabled={reviewerBusy !== null || (!person.enabled && (!person.isActive || person.isPending))} onChange={event => designate(person, event.target.checked)} />
+                        <span><strong>{person.name}</strong><span className='block text-xs text-slate-500'>{!person.isActive || person.isPending ? 'Account must be active and approved' : person.enabled ? 'Designated reviewer' : 'Can submit articles; cannot approve'}</span></span>
+                    </label>)}</div>
+                </section>}
+
                 <section className='app-card p-4 md:p-5'>
                     <div className='flex flex-col gap-3 md:flex-row md:items-center md:justify-between'><div><h2 className='text-lg font-bold' style={{ color: theme.textColor }}>Repository entries</h2><p className='text-xs text-slate-500'>Only validated entries are searchable by farmers.</p></div><div className='relative w-full md:max-w-xs'><MdSearch className='absolute left-3 top-1/2 -translate-y-1/2 text-slate-400' size={18} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder='Search articles or sources...' className='app-control h-10 w-full bg-slate-50 pl-9 pr-3 text-sm text-slate-700 outline-none focus:bg-white' /></div></div>
                     <div className='mt-5 flex gap-2 overflow-x-auto border-b pb-3' style={{ borderColor: `${theme.secondaryColor}45` }}>{[['all', 'All'], ['published', 'Published'], ['pending', 'Pending Validation'], ['rejected', 'Needs revision']].map(([value, label]) => <button key={value} onClick={() => setFilter(value)} className='whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition' style={{ backgroundColor: filter === value ? theme.primaryColor : `${theme.primaryColor}12`, color: filter === value ? '#fff' : theme.primaryColor }}>{label}</button>)}</div>
@@ -130,7 +155,7 @@ const KnowledgeBase = () => {
                                 <div className='flex items-start justify-between gap-3'><div className='min-w-0'><div className='flex flex-wrap items-center gap-2'><span className='rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider' style={{ backgroundColor: `${theme.primaryColor}12`, color: theme.primaryColor }}>{entry.category || 'General'}</span><span className='flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold' style={{ color: state.color, backgroundColor: state.background }}><StateIcon size={13} />{state.label}</span></div><h3 className='mt-3 line-clamp-2 font-bold text-slate-800'>{entry.title}</h3></div><div className='flex shrink-0 gap-1 opacity-60 transition group-hover:opacity-100'><button aria-label='Edit article' onClick={() => openEdit(entry)} className='rounded-lg p-2 transition hover:bg-slate-100'><MdEdit size={17} color={theme.primaryColor} /></button><button aria-label='Delete article' onClick={() => remove(entry.id)} className='rounded-lg p-2 transition hover:bg-red-50'><MdDelete size={17} color={theme.dangerColor} /></button></div></div>
                                 <p className='mt-2 line-clamp-3 text-sm leading-6 text-slate-600'>{entry.answer}</p>
                                 <KnowledgeSource article={entry} />
-                                {canValidate && statusOf(entry) === 'pending' && <div className='mt-4 flex justify-end border-t pt-3' style={{ borderColor: `${theme.secondaryColor}35` }}><Button size='sm' onClick={() => { setReviewEntry(entry); setReviewNote(''); setError('') }}><MdVerifiedUser size={15} /> Review submission</Button></div>}
+                                {mayReview(entry) && statusOf(entry) === 'pending' && <div className='mt-4 flex justify-end border-t pt-3' style={{ borderColor: `${theme.secondaryColor}35` }}><Button size='sm' onClick={() => { setReviewEntry(entry); setReviewNote(''); setSourceVerified(false); setLocalVerified(false); setError('') }}><MdVerifiedUser size={15} /> Review submission</Button></div>}
                                 <div className='mt-4 flex items-center justify-between border-t pt-3 text-[11px] text-slate-400' style={{ borderColor: `${theme.secondaryColor}35` }}><span>{entry.keywords?.length || 0} keywords</span><span>{entry.updatedAt ? new Date(entry.updatedAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recently added'}</span></div>
                             </article>
                         })}</div>}
@@ -159,8 +184,10 @@ const KnowledgeBase = () => {
                     <div className='max-h-[35vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-4'><p className='whitespace-pre-wrap text-sm leading-6 text-slate-700'>{reviewEntry.answer}</p></div>
                     <KnowledgeSource article={reviewEntry} />
                     <label className='flex flex-col gap-1 text-xs font-semibold text-slate-700'>Review notes<textarea value={reviewNote} onChange={event => setReviewNote(event.target.value)} rows={3} placeholder='Explain required corrections or record your validation findings...' className='rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal' /></label>
+                    <label className='flex items-start gap-2 text-sm text-slate-700'><input type='checkbox' checked={sourceVerified} onChange={event => setSourceVerified(event.target.checked)} />I opened the reference and verified that it supports this recommendation.</label>
+                    <label className='flex items-start gap-2 text-sm text-slate-700'><input type='checkbox' checked={localVerified} onChange={event => setLocalVerified(event.target.checked)} />I checked applicability to local crops, conditions, and safety requirements.</label>
                     {error && <p role='alert' className='text-xs text-red-600'>{error}</p>}
-                    <div className='flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4'><Button variant='ghost' disabled={Boolean(reviewing)} onClick={() => setReviewEntry(null)}>Cancel</Button><Button variant='secondary' disabled={Boolean(reviewing)} loading={reviewing === `${reviewEntry.id}:reject`} onClick={() => validateEntry(reviewEntry, 'reject')}><MdBlock size={16} /> Return for revision</Button><Button disabled={Boolean(reviewing)} loading={reviewing === `${reviewEntry.id}:approve`} onClick={() => validateEntry(reviewEntry, 'approve')}><MdVerifiedUser size={16} /> Approve and publish</Button></div>
+                    <div className='flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4'><Button variant='ghost' disabled={Boolean(reviewing)} onClick={() => setReviewEntry(null)}>Cancel</Button><Button variant='secondary' disabled={Boolean(reviewing)} loading={reviewing === `${reviewEntry.id}:reject`} onClick={() => validateEntry(reviewEntry, 'reject')}><MdBlock size={16} /> Return for revision</Button><Button disabled={Boolean(reviewing) || !sourceVerified || !localVerified || !reviewNote.trim()} loading={reviewing === `${reviewEntry.id}:approve`} onClick={() => validateEntry(reviewEntry, 'approve')}><MdVerifiedUser size={16} /> Approve and publish</Button></div>
                 </div>}
             </Dialog>
         </Layout>

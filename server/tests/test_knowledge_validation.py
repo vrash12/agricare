@@ -181,17 +181,19 @@ class KnowledgeValidationTests(unittest.TestCase):
         self.assertEqual([item['id'] for item in response.data], ['published'])
 
     def test_authorized_roles_can_approve_and_reject_with_reviewer_metadata(self):
-        reviewer_data = {'firstName': 'Karla Mae', 'lastName': 'Asuncion'}
+        reviewer_data = {'firstName': 'Karla Mae', 'lastName': 'Asuncion', 'isActive': True}
         for role in ('admin', 'extension_worker', 'lgu_personnel'):
             with self.subTest(role=role):
+                reviewer_data['role'] = role
                 approve_item = entry('approve-1')
                 fake, database = self.use_entries(approve_item)
+                fake.collection(knowledge.REVIEWERS_COLLECTION).records[f'{role}-1'] = {'enabled': True}
                 with database, patch.object(knowledge, 'get_user_by_id', return_value=reviewer_data):
                     response = self.request(
                         knowledge.KnowledgeValidationView,
                         'post',
                         actor(role, f'{role}-1'),
-                        {'action': 'approve'},
+                        {'action': 'approve', 'sourceVerified': True, 'localApplicabilityVerified': True, 'note': 'Verified supporting source and local use.', 'reviewedUpdatedAt': '2026-10-01T00:00:00+00:00'},
                         entry_id='approve-1',
                     )
                 self.assertEqual(response.status_code, 200)
@@ -204,12 +206,13 @@ class KnowledgeValidationTests(unittest.TestCase):
 
                 reject_item = entry('reject-1')
                 fake, database = self.use_entries(reject_item)
+                fake.collection(knowledge.REVIEWERS_COLLECTION).records[f'{role}-2'] = {'enabled': True}
                 with database, patch.object(knowledge, 'get_user_by_id', return_value=reviewer_data):
                     response = self.request(
                         knowledge.KnowledgeValidationView,
                         'post',
                         actor(role, f'{role}-2'),
-                        {'action': 'reject', 'note': 'Please confirm the source and dosage.'},
+                        {'action': 'reject', 'note': 'Please confirm the source and dosage.', 'reviewedUpdatedAt': '2026-10-01T00:00:00+00:00'},
                         entry_id='reject-1',
                     )
                 self.assertEqual(response.status_code, 200)
@@ -218,6 +221,16 @@ class KnowledgeValidationTests(unittest.TestCase):
                 self.assertFalse(rejected['isPublished'])
                 self.assertEqual(rejected['validatedBy'], f'{role}-2')
                 self.assertEqual(rejected['validationNote'], 'Please confirm the source and dosage.')
+
+    def test_legacy_seed_marked_pending_can_be_reviewed(self):
+        fake, database = self.use_entries(entry('legacy', validationStatus='validated', isPublished=True,
+                                               validatedBy='system:knowledge-seed'))
+        with database, patch.object(knowledge, 'get_user_by_id', return_value={'firstName': 'Admin'}):
+            response = self.request(knowledge.KnowledgeValidationView, 'post', actor('admin', 'a1'),
+                                    {'action': 'approve', 'sourceVerified': True, 'localApplicabilityVerified': True,
+                                     'note': 'Checked reference and local use.', 'reviewedUpdatedAt': '2026-10-01T00:00:00+00:00'}, entry_id='legacy')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(fake.collection('knowledge_entries').records['legacy']['validatedBy'], 'a1')
 
     def test_new_submission_is_pending_even_when_publish_is_requested(self):
         fake, database = self.use_entries()
@@ -268,6 +281,67 @@ class KnowledgeValidationTests(unittest.TestCase):
         self.assertIsNone(updated['validatedAt'])
         self.assertIsNone(updated['validationNote'])
         self.assertTrue(updated['submittedAt'])
+
+
+    def test_undesignated_worker_cannot_approve_or_designate(self):
+        fake, database = self.use_entries(entry('pending-1'))
+        with database, patch.object(knowledge, 'get_user_by_id', return_value={'role': 'extension_worker'}):
+            response = self.request(knowledge.KnowledgeValidationView, 'post', actor('extension_worker', 'w2'),
+                                    {'action': 'approve'}, entry_id='pending-1')
+            self.assertEqual(response.status_code, 403)
+            response = self.request(knowledge.KnowledgeReviewersView, 'patch', actor('extension_worker', 'w2'),
+                                    {'userId': 'w2', 'enabled': True})
+            self.assertEqual(response.status_code, 403)
+
+    def test_admin_can_designate_and_revoke_reviewer(self):
+        fake, database = self.use_entries()
+        with database, patch.object(knowledge, 'get_user_by_id', return_value={'role': 'lgu_personnel'}):
+            for enabled in (True, False):
+                response = self.request(knowledge.KnowledgeReviewersView, 'patch', actor('admin', 'a1'),
+                                        {'userId': 'w2', 'enabled': enabled})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(knowledge.can_validate(actor('lgu_personnel', 'w2')), enabled)
+
+    def test_admin_and_designated_worker_cannot_review_own_content(self):
+        for role in ('admin', 'extension_worker'):
+            for ownership in ({'createdBy': 'reviewer'}, {'lastEditedBy': 'reviewer'}, {'contributorIds': ['reviewer']}):
+                fake, database = self.use_entries(entry('pending-1', **ownership))
+                fake.collection(knowledge.REVIEWERS_COLLECTION).records['reviewer'] = {'enabled': True}
+                with database, patch.object(knowledge, 'get_user_by_id', return_value={'role': role}):
+                    response = self.request(knowledge.KnowledgeValidationView, 'post', actor(role, 'reviewer'),
+                                            {'action': 'approve', 'sourceVerified': True, 'localApplicabilityVerified': True, 'note': 'Checked'}, entry_id='pending-1')
+                    self.assertEqual(response.status_code, 403)
+
+    def test_approval_requires_evidence_confirmations_and_notes(self):
+        for payload in ({'action': 'approve', 'reviewedUpdatedAt': '2026-10-01T00:00:00+00:00'}, {'action': 'approve', 'sourceVerified': True, 'localApplicabilityVerified': True, 'reviewedUpdatedAt': '2026-10-01T00:00:00+00:00'}):
+            fake, database = self.use_entries(entry('pending-1'))
+            with database:
+                response = self.request(knowledge.KnowledgeValidationView, 'post', actor('admin', 'a1'), payload, entry_id='pending-1')
+            self.assertEqual(response.status_code, 400)
+            self.assertFalse(fake.collection('knowledge_entries').records['pending-1']['isPublished'])
+
+    def test_inactive_and_pending_accounts_cannot_review(self):
+        for user in (actor('admin', 'a1', is_active=False), actor('admin', 'a1', is_pending=True)):
+            fake, database = self.use_entries(entry('pending-1'))
+            with database:
+                response = self.request(knowledge.KnowledgeValidationView, 'post', user, {'action': 'approve'}, entry_id='pending-1')
+            self.assertEqual(response.status_code, 403)
+
+    def test_stale_review_cannot_publish_changed_content(self):
+        fake, database = self.use_entries(entry('pending-1'))
+        with database:
+            response = self.request(knowledge.KnowledgeValidationView, 'post', actor('admin', 'a1'),
+                                    {'action': 'approve', 'sourceVerified': True, 'localApplicabilityVerified': True, 'note': 'Verified', 'reviewedUpdatedAt': 'old-version'}, entry_id='pending-1')
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(fake.collection('knowledge_entries').records['pending-1']['isPublished'])
+
+    def test_content_edit_cannot_publish_in_same_request(self):
+        fake, database = self.use_entries(entry('approved', validationStatus='validated', isPublished=True))
+        with database:
+            response = self.request(knowledge.KnowledgeDetailView, 'patch', actor('admin', 'a1'),
+                                    {'answer': 'Unreviewed content', 'isPublished': True}, entry_id='approved')
+        self.assertEqual(response.status_code, 400)
+        self.assertNotEqual(fake.collection('knowledge_entries').records['approved']['answer'], 'Unreviewed content')
 
 
 if __name__ == '__main__':
